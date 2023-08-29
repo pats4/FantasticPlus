@@ -8,7 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 usdpl-front = { version = "0.11", path = "../../../usdpl-rs/usdpl-front"}
-nrpc = { version = "0.7", path = "../../../nRPC/nrpc" }
+nrpc = { version = "0.10", path = "../../../nRPC/nrpc", default-features = false }
 prost = "0.11"
 
 [build-dependencies]
