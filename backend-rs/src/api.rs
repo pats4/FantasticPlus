@@ -71,7 +71,7 @@ impl<'a> IFan<'a> for FanService {
             &mut self,
             _input: Empty,
         ) -> Result<RpmMessage, Box<dyn std::error::Error + Send>> {
-            if let Some(rpm) = crate::sys::read_fan() {
+            if let Some(rpm) = crate::sys::read_fan(self.ctrl.hwmon()) {
                 log::debug!("get_fan_rpm() success: {}", rpm);
                 Ok(RpmMessage { rpm: rpm as u32 })
             } else {
@@ -82,7 +82,7 @@ impl<'a> IFan<'a> for FanService {
             &mut self,
             _input: Empty,
         ) -> Result<TemperatureMessage, Box<dyn std::error::Error + Send>>{
-            if let Some(temperature) = crate::sys::read_thermal_zone(0) {
+            if let Some(temperature) = crate::sys::read_thermal_zone(self.ctrl.thermal_zone()) {
                 let real_temp = temperature as f64 / 1000.0;
                 log::debug!("get_temperature() success: {}", real_temp);
                 Ok(TemperatureMessage { temperature: real_temp })
@@ -162,6 +162,7 @@ impl<'a> IFan<'a> for FanService {
             settings.sort_curve();
             let mut state = self.ctrl.state().write().await;
             state.dirty = true;
+            log::debug!("add_curve_point(point: {:?}) success", point);
             Ok(Empty { ok: true })
         }
         async fn remove_curve_point(
@@ -170,13 +171,15 @@ impl<'a> IFan<'a> for FanService {
         ) -> Result<Empty, Box<dyn std::error::Error + Send>>{
             let mut settings = self.ctrl.settings().write().await;
             let i = input.index as usize;
-            if settings.curve.len() < i {
+            if settings.curve.len() > i {
                 settings.curve.swap_remove(i);
                 settings.sort_curve();
                 let mut state = self.ctrl.state().write().await;
                 state.dirty = true;
+                log::debug!("remove_curve_point(point: {}) success", input.index);
                 Ok(Empty { ok: true })
             } else {
+                log::debug!("remove_curve_point(index: {}) failed", input.index);
                 Ok(Empty { ok: false })
             }
         }

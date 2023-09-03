@@ -6,14 +6,19 @@ use tokio::sync::RwLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use sysfuss::{HwMonPath, BasicEntityPath};
+
 use super::datastructs::{Settings, State, GraphPoint};
 use super::json::SettingsJson;
 
 const VALVE_FAN_SERVICE: &str = "jupiter-fan-control.service";
+const SYSFS_ROOT: &str = "/";
 
 pub struct ControlRuntime {
     settings: Arc<RwLock<Settings>>,
     state: Arc<RwLock<State>>,
+    hwmon: Arc<HwMonPath>,
+    thermal_zone: Arc<BasicEntityPath>,
 }
 
 impl ControlRuntime {
@@ -23,6 +28,8 @@ impl ControlRuntime {
         Self {
             settings: Arc::new(RwLock::new(super::json::SettingsJson::open(settings_p).unwrap_or_default().into())),
             state: Arc::new(RwLock::new(new_state)),
+            hwmon: Arc::new(crate::sys::find_hwmon(SYSFS_ROOT)),
+            thermal_zone: Arc::new(crate::sys::find_thermal_zone(SYSFS_ROOT))
         }
     }
 
@@ -42,9 +49,19 @@ impl ControlRuntime {
         &self.state
     }
 
+    pub(crate) fn hwmon(&self) -> &'_ HwMonPath {
+        &self.hwmon
+    }
+
+    pub(crate) fn thermal_zone(&self) -> &'_ BasicEntityPath {
+        &self.thermal_zone
+    }
+
     pub fn run(&self) -> thread::JoinHandle<()> {
         let runtime_settings = self.settings_clone();
         let runtime_state = self.state_clone();
+        let runtime_hwmon = self.hwmon.clone();
+        let runtime_thermal_zone = self.thermal_zone.clone();
         thread::spawn(move || {
             let sleep_duration = Duration::from_millis(1000);
             let mut start_time = Instant::now();
@@ -56,7 +73,7 @@ impl ControlRuntime {
                         let state = runtime_state.blocking_read();
                         let settings = runtime_settings.blocking_read();
                         if settings.enable {
-                            Self::on_set_enable(&settings, &state);
+                            Self::on_set_enable(&settings, &state, &runtime_hwmon);
                         }
                     }
                 }
@@ -70,7 +87,7 @@ impl ControlRuntime {
                         if let Err(e) = settings_json.save(settings_path(&state.home)) {
                             log::error!("SettingsJson.save({}) error: {}", settings_path(&state.home).display(), e);
                         }
-                        Self::on_set_enable(&settings, &state);
+                        Self::on_set_enable(&settings, &state, &runtime_hwmon);
                         drop(state);
                         let mut state = runtime_state.blocking_write();
                         state.dirty = false;
@@ -80,7 +97,7 @@ impl ControlRuntime {
                     let settings = runtime_settings.blocking_read();
                     if settings.enable {
                         Self::enforce_jupiter_status(true);
-                        Self::do_fan_control(&settings);
+                        Self::do_fan_control(&settings, &runtime_hwmon, &runtime_thermal_zone);
                     }
                 }
                 thread::sleep(sleep_duration);
@@ -88,15 +105,15 @@ impl ControlRuntime {
         })
     }
 
-    fn on_set_enable(settings: &Settings, _state: &State) {
+    fn on_set_enable(settings: &Settings, _state: &State, hwmon: &HwMonPath) {
         // stop/start jupiter fan control (since the client-side way of doing this was removed :( )
         Self::enforce_jupiter_status(settings.enable);
-        if let Err(e) = crate::sys::write_fan_recalc(settings.enable) {
+        if let Err(e) = crate::sys::write_fan_recalc(hwmon, settings.enable) {
             log::error!("runtime failed to write to fan recalculate file: {}", e);
         }
     }
 
-    fn do_fan_control(settings: &Settings) {
+    fn do_fan_control(settings: &Settings, hwmon: &HwMonPath, thermal_zone: &BasicEntityPath) {
         /*
             curve = self.settings["curve"]
             fan_ratio = 0 # unnecessary in Python, but stupid without
@@ -115,7 +132,7 @@ impl ControlRuntime {
                     fan_ratio = self.step_fan(self, index, temperature_ratio)
             set_fan_target(int((fan_ratio * FAN_MAXIMUM) + FAN_MINIMUM))
         */
-        let fan_ratio: f64 = if let Some(thermal_zone) = crate::sys::read_thermal_zone(0) {
+        let fan_ratio: f64 = if let Some(thermal_zone) = crate::sys::read_thermal_zone(thermal_zone) {
             let temperature_ratio = (((thermal_zone as f64)/1000.0) - settings.temperature_bounds.min)
                 / (settings.temperature_bounds.max - settings.temperature_bounds.min);
             let mut index = None;
@@ -134,7 +151,7 @@ impl ControlRuntime {
             1.0
         };
         let fan_speed: u64 = ((fan_ratio * (settings.fan_bounds.max - settings.fan_bounds.min)) + settings.fan_bounds.min) as _;
-        if let Err(e) = crate::sys::write_fan_target(fan_speed) {
+        if let Err(e) = crate::sys::write_fan_target(hwmon, fan_speed) {
             log::error!("runtime failed to write to fan target file: {}", e);
         }
     }

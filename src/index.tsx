@@ -7,6 +7,7 @@ import {
   ServerAPI,
   ToggleField,
   staticClasses,
+  Navigation,
 } from "decky-frontend-lib";
 import { VFC, useState } from "react";
 import { FaFan } from "react-icons/fa";
@@ -22,7 +23,6 @@ var usdplReady: boolean = false;
 
 var name: string = "";
 var version: string = "";
-var egg = 0;
 
 var curve_backup: {x: number, y: number}[] = [];
 
@@ -285,8 +285,8 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
       <PanelSectionRow>
         <Field
           label={name}
-          onClick={()=> { egg++; }}>
-          {egg % 10 == 9 ? "by NGnius" : "v" + version}
+          onClick={()=> { Navigation.NavigateToExternalWeb("https://git.ngni.us/NG-SD-Plugins/Fantastic/releases"); }}>
+          {"v" + version}
         </Field>
       </PanelSectionRow>
     </PanelSection>
