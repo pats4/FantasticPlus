@@ -247,7 +247,7 @@ checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
 
 [[package]]
 name = "fantastic-rs"
-version = "0.5.0"
+version = "0.5.0-alpha1"
 dependencies = [
  "log",
  "nrpc",
@@ -255,6 +255,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simplelog",
+ "sysfuss",
  "tokio",
  "usdpl-back",
  "usdpl-build",
@@ -1182,6 +1183,10 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "sysfuss"
+version = "0.3.0"
 
 [[package]]
 name = "tempfile"
