@@ -305,16 +305,17 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
   );
 };
 
+(async function(){
+  if (!usdplReady) {
+    await backend.initBackend();
+    usdplReady = true;
+    backend.getEnabled();
+    name = await backend.getName();
+    version = await backend.getVersion();
+  }
+})();
+
 export default definePlugin((serverApi: ServerAPI) => {
-  (async function(){
-      if (!usdplReady) {
-        await backend.initBackend();
-        usdplReady = true;
-        backend.getEnabled();
-        name = await backend.getName();
-        version = await backend.getVersion();
-      }
-    })();
 
   let ico = <FaFan />;
   let now = new Date();

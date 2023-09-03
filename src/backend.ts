@@ -103,5 +103,3 @@ export async function getTemperature(): Promise<number> {
     return (await FAN_CLIENT!.get_temperature(true))?? -273;
     //return (await call_backend("get_temperature", []))[0];
 }
-
-initBackend();
