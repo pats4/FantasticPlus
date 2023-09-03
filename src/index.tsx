@@ -1,6 +1,5 @@
 import {
   definePlugin,
-  DialogButton,
   PanelSection,
   PanelSectionRow,
   Field,
@@ -222,8 +221,12 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
 
   if (!usdplReady) {
     return (
-      <PanelSection>
-      </PanelSection>
+      <PanelSectionRow>
+        <Field
+          label="Loading...">
+          If you can read this, something probably went wrong :(
+        </Field>
+      </PanelSectionRow>
     );
   }
 
@@ -302,28 +305,15 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
   );
 };
 
-const DeckyPluginRouterTest: VFC = () => {
-  return (
-    <div style={{ marginTop: "50px", color: "white" }}>
-      Hello World!
-      <DialogButton onClick={() => {}}>
-        Go to Store
-      </DialogButton>
-    </div>
-  );
-};
-
 export default definePlugin((serverApi: ServerAPI) => {
-  serverApi.routerHook.addRoute("/decky-plugin-test", DeckyPluginRouterTest, {
-    exact: true,
-  });
-
   (async function(){
-      await backend.initBackend();
-      usdplReady = true;
-      backend.getEnabled();
-      name = await backend.getName();
-      version = await backend.getVersion();
+      if (!usdplReady) {
+        await backend.initBackend();
+        usdplReady = true;
+        backend.getEnabled();
+        name = await backend.getName();
+        version = await backend.getVersion();
+      }
     })();
 
   let ico = <FaFan />;
@@ -338,7 +328,6 @@ export default definePlugin((serverApi: ServerAPI) => {
     icon: ico,
     onDismount() {
       clearInterval(periodicHook!);
-      serverApi.routerHook.removeRoute("/decky-plugin-test");
     },
   };
 });
