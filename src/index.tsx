@@ -13,6 +13,8 @@ import { VFC, useState } from "react";
 import { FaFan } from "react-icons/fa";
 import { SiOnlyfans } from "react-icons/si";
 
+import { version_usdpl } from "fantastic-wasm";
+
 import * as backend from "./backend";
 import {Canvas} from "./canvas";
 
@@ -289,6 +291,13 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
           {"v" + version}
         </Field>
       </PanelSectionRow>
+      { (version?.includes("alpha") || version?.includes("beta")) && <PanelSectionRow>
+        <Field
+          label="USDPL"
+          onClick={()=> { Navigation.NavigateToExternalWeb("https://git.ngni.us/NG-SD-Plugins/usdpl-rs"); }}>
+          v{version_usdpl()}
+        </Field>
+      </PanelSectionRow>}
     </PanelSection>
   );
 };
