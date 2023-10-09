@@ -94,12 +94,10 @@ export async function removeCurvePoint(index: number): Promise<{"x": number, "y"
     //return (await call_backend("remove_curve_point", [index]))[0];
 }
 
-export async function getFanRpm(): Promise<number> {
-    return (await FAN_CLIENT!.get_fan_rpm(true))?? 1337;
-    //return (await call_backend("get_fan_rpm", []))[0];
+export async function getFanRpm(callback: (rpm: number) => void): Promise<void> {
+    return (await FAN_CLIENT!.get_fan_rpm(true, callback));
 }
 
-export async function getTemperature(): Promise<number> {
-    return (await FAN_CLIENT!.get_temperature(true))?? -273;
-    //return (await call_backend("get_temperature", []))[0];
+export async function getTemperature(callback: (temp: number) => void): Promise<void> {
+    return (await FAN_CLIENT!.get_temperature(true, callback));
 }
