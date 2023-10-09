@@ -20,10 +20,10 @@ service Fan {
   rpc name (Empty) returns (NameMessage);
 
   // Get fan speed
-  rpc get_fan_rpm (Empty) returns (RpmMessage);
+  rpc get_fan_rpm (Empty) returns (stream RpmMessage);
 
   // Get system temperature
-  rpc get_temperature (Empty) returns (TemperatureMessage);
+  rpc get_temperature (Empty) returns (stream TemperatureMessage);
 
   // Set custom fan control enabled
   rpc set_enable (EnablementMessage) returns (EnablementMessage);

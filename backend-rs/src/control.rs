@@ -49,12 +49,20 @@ impl ControlRuntime {
         &self.state
     }
 
-    pub(crate) fn hwmon(&self) -> &'_ HwMonPath {
+    /*pub(crate) fn hwmon(&self) -> &'_ HwMonPath {
         &self.hwmon
+    }*/
+
+    pub(crate) fn hwmon_clone(&self) -> Arc<HwMonPath> {
+        self.hwmon.clone()
     }
 
-    pub(crate) fn thermal_zone(&self) -> &'_ BasicEntityPath {
+    /*pub(crate) fn thermal_zone(&self) -> &'_ BasicEntityPath {
         &self.thermal_zone
+    }*/
+
+    pub(crate) fn thermal_zone_clone(&self) -> Arc<BasicEntityPath> {
+        self.thermal_zone.clone()
     }
 
     pub fn run(&self) -> thread::JoinHandle<()> {

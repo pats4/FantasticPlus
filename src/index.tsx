@@ -27,6 +27,12 @@ var version: string = "";
 
 var curve_backup: {x: number, y: number}[] = [];
 
+var tempCache: number = -1337;
+var setTemperature_display = (_: number) => {};
+
+var fanRpmCache: number = -273;
+var setFanRpm_display = (_: number) => {};
+
 const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
   // const [result, setResult] = useState<number | undefined>();
 
@@ -54,8 +60,16 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
     curve_backup = value;
   }
 
-  const [temperatureGlobal, setTemperature] = useState<number>(-273.15);
-  const [fanRpmGlobal, setFanRpm] = useState<number>(-1337);
+  const [temperatureGlobal, setTemperature] = useState<number>(tempCache);
+  const [fanRpmGlobal, setFanRpm] = useState<number>(fanRpmCache);
+  setTemperature_display = (x) => {
+    setTemperature(x);
+    tempCache = x;
+  };
+  setFanRpm_display = (x) => {
+    setFanRpm(x);
+    fanRpmCache = x;
+  };
 
   function setEnable(enable: boolean) {
     setEnableInternal(enable);
@@ -206,17 +220,17 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
     backend.resolve(backend.getEnabled(), setEnable);
     backend.resolve(backend.getInterpolate(), setInterpol);
     backend.resolve(backend.getCurve(), setCurve);
-    backend.resolve(backend.getTemperature(), setTemperature);
-    backend.resolve(backend.getFanRpm(), setFanRpm);
+    backend.resolve(backend.getTemperature(setTemperature_display), (_: any) => {});
+    backend.resolve(backend.getFanRpm(setFanRpm_display), (_: any) => {});
 
     if (periodicHook != null) {
       clearInterval(periodicHook);
     }
 
-    periodicHook = setInterval(function() {
+    /*periodicHook = setInterval(function() {
         backend.resolve(backend.getTemperature(), setTemperature);
         backend.resolve(backend.getFanRpm(), setFanRpm);
-    }, 1000);
+    }, 1000);*/
   }
 
   if (!usdplReady) {

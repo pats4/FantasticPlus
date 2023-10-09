@@ -5,23 +5,34 @@ const HWMON_INDEX: u64 = 5;
 
 pub const RECALCULATE_ATTR: HwMonAttribute = HwMonAttribute::custom("recalculate");
 pub const FAN1_INPUT_ATTR: HwMonAttribute = HwMonAttribute::new(HwMonAttributeType::Fan, 1, HwMonAttributeItem::Input);
+pub const FAN1_LABEL_ATTR: HwMonAttribute = HwMonAttribute::new(HwMonAttributeType::Fan, 1, HwMonAttributeItem::Label);
 pub const FAN1_TARGET_ATTR: HwMonAttribute = HwMonAttribute::custom("fan1_target");
 
 const HWMON_NEEDS: [HwMonAttribute; 3] = [
-    RECALCULATE_ATTR,
+    //RECALCULATE_ATTR,
     FAN1_INPUT_ATTR,
     FAN1_TARGET_ATTR,
+    FAN1_LABEL_ATTR,
 ];
 
 pub fn read_fan(hwmon: &HwMonPath) -> Option<u64> {
-    hwmon.attribute(FAN1_INPUT_ATTR).ok()
-    //read_single(format!("/sys/class/hwmon/hwmon{}/fan1_input", HWMON_INDEX)).ok()
+    match hwmon.attribute(FAN1_INPUT_ATTR){
+        Ok(x) => Some(x),
+        Err(e) => {
+            log::error!("Failed read_fan(): {}", e);
+            None
+        },
+    }
 }
 
-// TODO convert to sysfuss
 pub fn read_thermal_zone(entity: &BasicEntityPath) -> Option<u64> {
-    entity.attribute("temp".to_owned()).ok()
-    //read_single(format!("/sys/class/thermal/thermal_zone{}/temp", index)).ok()
+    match entity.attribute("temp".to_owned()) {
+        Ok(x) => Some(x),
+        Err(e) => {
+            log::error!("Failed read_thermal_zone(): {}", e);
+            None
+        },
+    }
 }
 
 pub fn write_fan_recalc(hwmon: &HwMonPath, enabled: bool) -> Result<(), std::io::Error> {
