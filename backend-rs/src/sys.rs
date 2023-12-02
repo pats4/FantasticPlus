@@ -54,11 +54,13 @@ pub fn find_hwmon<P: AsRef<std::path::Path>>(path: P) -> HwMonPath {
             syspath.hwmon_by_index(HWMON_INDEX)
         },
         Ok(mut iter) => {
-            iter.next()
+            let entity = iter.next()
                 .unwrap_or_else(|| {
                     log::error!("sysfs hwmon iter empty: [no capable results]");
                     syspath.hwmon_by_index(HWMON_INDEX)
-                })
+                });
+            log::info!("Found fan hwmon {}", entity.as_ref().display());
+            entity
         }
     }
 }
@@ -73,11 +75,13 @@ pub fn find_thermal_zone<P: AsRef<std::path::Path>>(path: P) -> BasicEntityPath 
             BasicEntityPath::new("/sys/class/thermal/thermal_zone0")
         },
         Ok(mut iter) => {
-            iter.next()
+            let entity = iter.next()
                 .unwrap_or_else(|| {
                     log::error!("sysfs thermal class iter empty: [no capable results]");
                     BasicEntityPath::new("/sys/class/thermal/thermal_zone0")
-                })
+                });
+            log::info!("Found thermal zone {}", entity.as_ref().display());
+            entity
         }
     }
 }
