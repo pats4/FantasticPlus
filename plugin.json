@@ -1,7 +1,7 @@
 {
     "name": "Fantastic",
     "author": "NGnius",
-    "flags": ["root", "debug"],
+    "flags": ["root", "_debug", "global-dfl"],
     "publish": {
         "discord_id": "106537989684887552",
         "description": "Fan controls",
