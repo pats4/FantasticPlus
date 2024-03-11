@@ -76,13 +76,14 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
   }
 
   function onClickCanvas(e: any) {
-    //console.log("canvas click", e);
+    //console.log("[FANTASTIC] canvas click", e);
     const realEvent: any = e.nativeEvent;
     //console.log("Canvas click @ (" + realEvent.layerX.toString() + ", " + realEvent.layerY.toString() + ")");
     const target: any = e.currentTarget;
-    //console.log("Target dimensions " + target.width.toString() + "x" + target.height.toString());
-    const clickX = realEvent.layerX;
-    const clickY = realEvent.layerY;
+    //console.log("[FANTASTIC] Target dimensions " + target.width.toString() + "x" + target.height.toString());
+    var clickX = realEvent.offsetX;
+    var clickY = realEvent.offsetY;
+    //console.debug("[FANTASTIC] curve click:", clickX, clickY);
     for (let i = 0; i < curveGlobal.length; i++) {
       const curvePoint = curveGlobal[i];
       const pointX = curvePoint.x * target.width;
@@ -99,7 +100,8 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
         }
     }
     //console.log("Adding new point");
-    backend.resolve(backend.addCurvePoint({x: clickX / target.width, y: 1 - (clickY / target.height)}), setCurve);
+    const curvePoint = {x: clickX / target.width, y: 1 - (clickY / target.height)};
+    backend.resolve(backend.addCurvePoint(curvePoint), setCurve);
   }
 
   function drawCanvas(ctx: any, frameCount: number): void {

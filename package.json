@@ -1,6 +1,6 @@
 {
   "name": "Fantastic",
-  "version": "0.5.0-alpha3",
+  "version": "0.5.1-alpha1",
   "description": "A template to quickly create decky plugins from scratch, based on TypeScript and webpack",
   "scripts": {
     "build": "shx rm -rf dist && rollup -c",
