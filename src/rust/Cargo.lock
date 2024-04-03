@@ -18,17 +18,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4668cab20f66d8d020e1fbc0ebe47217433c1b6c8f2040faf858554e394ace6"
 
 [[package]]
-name = "async-trait"
-version = "0.1.73"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc00ceb34980c03614e35a3a4e218276a0a824e911d07651cd0d858a51e8c0f0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.29",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -429,9 +418,8 @@ checksum = "e5ce46fe64a9d73be07dcbe690a38ce1b293be448fd8ce1e6c1b8062c9f72c6a"
 
 [[package]]
 name = "nrpc"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
- "async-trait",
  "bytes",
  "futures",
  "prost",
@@ -439,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "nrpc-build"
-version = "0.10.0"
+version = "1.0.0"
 dependencies = [
  "nrpc",
  "prettyplease 0.2.12",
@@ -803,7 +791,7 @@ checksum = "c0edd1e5b14653f783770bce4a4dabb4a5108a5370a5f5d8cfe8710c361f6c8b"
 
 [[package]]
 name = "usdpl-build"
-version = "0.11.0"
+version = "1.0.0"
 dependencies = [
  "nrpc-build",
  "prettyplease 0.2.12",
@@ -816,14 +804,14 @@ dependencies = [
 
 [[package]]
 name = "usdpl-core"
-version = "0.11.0"
+version = "1.0.0"
 dependencies = [
  "base64",
 ]
 
 [[package]]
 name = "usdpl-front"
-version = "0.11.0"
+version = "1.0.0"
 dependencies = [
  "console_error_panic_hook",
  "futures",
