@@ -28,7 +28,7 @@ fn once_true() -> impl std::iter::Iterator<Item = bool> {
     std::iter::once(true).chain(std::iter::repeat(false))
 }
 
-#[usdpl_back::nrpc::_helpers::async_trait::async_trait]
+#[::nrpc::_helpers::async_trait::async_trait]
 impl<'a> IFan<'a> for FanService {
     async fn echo(
             &mut self,
