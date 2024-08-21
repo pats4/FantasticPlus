@@ -1,4 +1,5 @@
 mod api;
+mod adapters;
 mod control;
 mod datastructs;
 mod json;
@@ -28,7 +29,14 @@ fn main() -> Result<(), ()> {
     println!("Starting back-end ({} v{})", api::NAME, api::VERSION);
     usdpl_back::Server::new(PORT)
         .register(FanServer::new(
-            api::FanService::new(control::ControlRuntime::new())
+            api::FanService::new(control::ControlRuntime::new_boxed(
+                adapters::fans::SteamDeckFan::maybe_find()
+                    .map(|f| Box::new(f) as Box<dyn adapters::FanAdapter>)
+                    .unwrap_or_else(|| Box::new(adapters::fans::DevModeFan)),
+                adapters::fans::SteamDeckFan::maybe_find_thermal_zone()
+                    .map(|t| Box::new(adapters::sensors::ThermalZoneSensor::new(t)) as Box<dyn adapters::SensorAdapter>)
+                    .unwrap_or_else(|| Box::new(adapters::sensors::DevModeSensor))
+            ))
         ))
         .run_blocking()
         .unwrap();

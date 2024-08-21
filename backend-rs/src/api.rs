@@ -84,22 +84,33 @@ impl<'a> IFan<'a> for FanService {
             usdpl_back::nrpc::ServiceServerStream<'b, RpmMessage>,
             Box<dyn std::error::Error + Send>,
         > {
-            let hwmon = self.ctrl.hwmon_clone();
-            let stream = usdpl_back::nrpc::_helpers::futures::stream::iter(once_true()).then(move |is_first| {
-                let hwmon = hwmon.clone();
-                tokio::task::spawn_blocking(
-                    /* tokio::time::sleep(..) is not Unpin (but this is)... *grumble grumble* */
-                    move || if !is_first { std::thread::sleep(FAN_READ_PERIOD); })
-                .map(move |_| {
-                        if let Some(rpm) = crate::sys::read_fan(&hwmon) {
-                            log::debug!("get_fan_rpm() success: {}", rpm);
-                            Ok(RpmMessage { rpm: rpm as u32 })
-                        } else {
-                            Err(usdpl_back::nrpc::ServiceError::Method(Box::<dyn std::error::Error + Send + Sync>::from("Failed to read fan speed")))
-                        }
-                    })
-            });
-            Ok(Box::new(stream))
+            let fan_clone = self.ctrl.fan_clone();
+            if fan_clone.sensor().is_some() {
+                let stream = usdpl_back::nrpc::_helpers::futures::stream::iter(once_true()).then(move |is_first| {
+                    let fan_clone2 = fan_clone.clone();
+                    tokio::task::spawn_blocking(
+                        /* tokio::time::sleep(..) is not Unpin (but this is)... *grumble grumble* */
+                        move || if !is_first { std::thread::sleep(FAN_READ_PERIOD); })
+                    .map(move |_| {
+                            if let Some(fan_sensor) = fan_clone2.sensor() {
+                                match fan_sensor.read() {
+                                    Ok(reading) => {
+                                        log::debug!("get_fan_rpm() success: {}", reading.value);
+                                        Ok(RpmMessage { rpm: reading.value as u32 })
+                                    }
+                                    Err(e) => {
+                                        Err(usdpl_back::nrpc::ServiceError::Method(Box::<dyn std::error::Error + Send + Sync>::from(format!("Failed to read fan speed: {}", e))))
+                                    }
+                                }
+                            } else {
+                                Err(usdpl_back::nrpc::ServiceError::Method(Box::<dyn std::error::Error + Send + Sync>::from("Failed to get fan speed sensor")))
+                            }
+                        })
+                });
+                Ok(Box::new(stream))
+            } else {
+                Ok(Box::new(usdpl_back::nrpc::_helpers::futures::stream::empty()))
+            }
         }
 
         async fn get_temperature<'b: 'a>(
@@ -109,19 +120,22 @@ impl<'a> IFan<'a> for FanService {
             usdpl_back::nrpc::ServiceServerStream<'b, TemperatureMessage>,
             Box<dyn std::error::Error + Send>,
         > {
-            let thermal_zone = self.ctrl.thermal_zone_clone();
+            let sensor_clone = self.ctrl.sensor_clone();
             let stream = usdpl_back::nrpc::_helpers::futures::stream::iter(once_true()).then(move |is_first| {
-                let thermal_zone = thermal_zone.clone();
+                let sensor_clone2 = sensor_clone.clone();
                 tokio::task::spawn_blocking(
                     /* tokio::time::sleep(..) is not Unpin (but this is)... *grumble grumble* */
                     move || if !is_first { std::thread::sleep(TEMPERATURE_READ_PERIOD); })
                 .map(move |_| {
-                        if let Some(temperature) = crate::sys::read_thermal_zone(&thermal_zone) {
-                            let real_temp = temperature as f64 / 1000.0;
-                            log::debug!("get_temperature() success: {}", real_temp);
-                            Ok(TemperatureMessage { temperature: real_temp })
-                        } else {
-                            Err(usdpl_back::nrpc::ServiceError::Method(Box::<dyn std::error::Error + Send + Sync>::from("get_temperature failed to read thermal zone 0")))
+                        match sensor_clone2.read() {
+                            Ok(reading) => {
+                                let real_temp = reading.value as f64 / 1000.0;
+                                log::debug!("get_temperature() success: {}", real_temp);
+                                Ok(TemperatureMessage { temperature: real_temp })
+                            },
+                            Err(e) => {
+                                Err(usdpl_back::nrpc::ServiceError::Method(Box::<dyn std::error::Error + Send + Sync>::from(format!("get_temperature failed to read sensor: {}", e))))
+                            }
                         }
                     })
             });
