@@ -2,7 +2,7 @@ use std::default::Default;
 use std::convert::{Into, From};
 use std::path::PathBuf;
 
-use super::json::{SettingsJson, GraphPointJson, BoundsJson};
+use super::json::{SettingsJson, GraphPointJson};
 
 #[derive(Debug, Clone)]
 pub struct Settings {
@@ -10,8 +10,6 @@ pub struct Settings {
     pub enable: bool,
     pub interpolate: bool,
     pub curve: Vec<GraphPoint>,
-    pub fan_bounds: Bounds<f64>,
-    pub temperature_bounds: Bounds<f64>,
 }
 
 impl Settings {
@@ -28,42 +26,18 @@ impl From<SettingsJson> for Settings {
                 enable: other.enable,
                 interpolate: other.interpolate,
                 curve: other.curve.drain(..).map(|x| GraphPoint::from_json(x, other.version)).collect(),
-                fan_bounds: Bounds {
-                    min: 1.0,
-                    max: 7000.0,
-                },
-                temperature_bounds: Bounds {
-                    min: 0.0,
-                    max: 100.0,
-                },
             },
             1 => Self {
                 version: 1,
                 enable: other.enable,
                 interpolate: other.interpolate,
                 curve: other.curve.drain(..).map(|x| GraphPoint::from_json(x, other.version)).collect(),
-                fan_bounds: other.fan_bounds.map(|x| Bounds::<f64>::from_json(x, other.version)).unwrap_or(Bounds {
-                    min: 1.0,
-                    max: 7000.0,
-                }),
-                temperature_bounds: other.temperature_bounds.map(|x| Bounds::<f64>::from_json(x, other.version)).unwrap_or(Bounds {
-                    min: 0.0,
-                    max: 100.0,
-                }),
             },
             _ => Self {
                 version: 1,
                 enable: other.enable,
                 interpolate: other.interpolate,
                 curve: other.curve.drain(..).map(|x| GraphPoint::from_json(x, other.version)).collect(),
-                fan_bounds: Bounds {
-                    min: 1.0,
-                    max: 7000.0,
-                },
-                temperature_bounds: Bounds {
-                    min: 0.0,
-                    max: 100.0,
-                },
             }
         };
         result.sort_curve();
@@ -79,8 +53,6 @@ impl Into<SettingsJson> for Settings {
             enable: self.enable,
             interpolate: self.interpolate,
             curve: self.curve.drain(..).map(|x| x.into()).collect(),
-            fan_bounds: Some(self.fan_bounds.into()),
-            temperature_bounds: Some(self.temperature_bounds.into()),
         }
     }
 }
@@ -117,72 +89,6 @@ impl Into<GraphPointJson> for GraphPoint {
         GraphPointJson {
             x: self.x,
             y: self.y,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Bounds<T: core::fmt::Debug + Clone> {
-    pub min: T,
-    pub max: T,
-}
-
-/*impl Bounds<usize> {
-    #[inline]
-    pub fn from_json(other: BoundsJson, version: u64) -> Self {
-        match version {
-            0 => Self {
-                min: other.min as _,
-                max: other.max as _,
-            },
-            1 => Self {
-                min: other.min as _,
-                max: other.max as _,
-            },
-            _ => Self {
-                min: other.min as _,
-                max: other.max as _,
-            }
-        }
-    }
-}*/
-
-impl Bounds<f64> {
-    #[inline]
-    pub fn from_json(other: BoundsJson, version: u64) -> Self {
-        match version {
-            0 => Self {
-                min: other.min,
-                max: other.max,
-            },
-            1 => Self {
-                min: other.min,
-                max: other.max,
-            },
-            _ => Self {
-                min: other.min,
-                max: other.max,
-            }
-        }
-    }
-}
-
-/*impl Into<BoundsJson> for Bounds<usize> {
-    #[inline]
-    fn into(self) -> BoundsJson {
-        BoundsJson {
-            min: self.min as _,
-            max: self.max as _,
-        }
-    }
-}*/
-
-impl Into<BoundsJson> for Bounds<f64> {
-    #[inline]
-    fn into(self) -> BoundsJson {
-        BoundsJson {
-            min: self.min,
-            max: self.max,
         }
     }
 }

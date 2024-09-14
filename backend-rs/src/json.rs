@@ -11,20 +11,12 @@ pub struct SettingsJson {
     pub enable: bool,
     pub interpolate: bool,
     pub curve: Vec<GraphPointJson>,
-    pub fan_bounds: Option<BoundsJson>,
-    pub temperature_bounds: Option<BoundsJson>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct GraphPointJson {
     pub x: f64,
     pub y: f64,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct BoundsJson {
-    pub min: f64,
-    pub max: f64,
 }
 
 impl Default for SettingsJson {
@@ -34,14 +26,6 @@ impl Default for SettingsJson {
             enable: false,
             interpolate: true,
             curve: Vec::new(),
-            fan_bounds: Some(BoundsJson {
-                min: 0.0,
-                max: 7000.0,
-            }),
-            temperature_bounds: Some(BoundsJson {
-                min: 0.0,
-                max: 100.0,
-            })
         }
     }
 }

@@ -32,9 +32,17 @@ fn main() -> Result<(), ()> {
             api::FanService::new(control::ControlRuntime::new_boxed(
                 adapters::fans::SteamDeckFan::maybe_find()
                     .map(|f| Box::new(f) as Box<dyn adapters::FanAdapter>)
+                    .or_else(
+                        || adapters::fans::RogAllyFan::maybe_find()
+                            .map(|f| Box::new(f) as Box<dyn adapters::FanAdapter>)
+                    )
                     .unwrap_or_else(|| Box::new(adapters::fans::DevModeFan)),
                 adapters::fans::SteamDeckFan::maybe_find_thermal_zone()
                     .map(|t| Box::new(adapters::sensors::ThermalZoneSensor::new(t)) as Box<dyn adapters::SensorAdapter>)
+                    .or_else(
+                        || adapters::sensors::ThermalZoneSensor::new_if_exists("/sys/thermal/thermal_zone0")
+                            .map(|t| Box::new(t) as Box<dyn adapters::SensorAdapter>)
+                    )
                     .unwrap_or_else(|| Box::new(adapters::sensors::DevModeSensor))
             ))
         ))

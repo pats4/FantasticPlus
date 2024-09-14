@@ -9,6 +9,14 @@ impl ThermalZoneSensor {
     pub fn new<P: AsRef<std::path::Path>>(zone_path: P) -> Self {
         Self { zone: BasicEntityPath::new(zone_path) }
     }
+
+    pub fn new_if_exists<P: AsRef<std::path::Path>>(zone_path: P) -> Option<Self> {
+        if zone_path.as_ref().exists() {
+            Some(Self { zone: BasicEntityPath::new(zone_path) })
+        } else {
+            None
+        }
+    }
 }
 
 impl super::Adapter for ThermalZoneSensor {

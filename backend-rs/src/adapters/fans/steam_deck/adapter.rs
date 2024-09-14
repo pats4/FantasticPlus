@@ -174,6 +174,10 @@ fn read_fan(hwmon: &HwMonPath) -> std::io::Result<u64> {
     }
 }
 
+fn fan_range() -> std::ops::Range<f64> {
+    1.0..7000.0
+}
+
 fn do_fan_control(settings: &Settings, hwmon: &HwMonPath, thermal_zone: f64) {
     /*
         curve = self.settings["curve"]
@@ -193,8 +197,8 @@ fn do_fan_control(settings: &Settings, hwmon: &HwMonPath, thermal_zone: f64) {
                 fan_ratio = self.step_fan(self, index, temperature_ratio)
         set_fan_target(int((fan_ratio * FAN_MAXIMUM) + FAN_MINIMUM))
     */
-    let temperature_ratio = (((thermal_zone as f64)/1000.0) - settings.temperature_bounds.min)
-            / (settings.temperature_bounds.max - settings.temperature_bounds.min);
+    let fan_bounds = fan_range();
+    let temperature_ratio = ((thermal_zone as f64)/1000.0) / 100.0 /* temperature range in C */;
     let mut index = None;
     for i in (0..settings.curve.len()).rev() {
         if settings.curve[i].x < temperature_ratio {
@@ -207,7 +211,7 @@ fn do_fan_control(settings: &Settings, hwmon: &HwMonPath, thermal_zone: f64) {
     } else {
         step_fan(settings, index, temperature_ratio)
     };
-    let fan_speed: u64 = ((fan_ratio * (settings.fan_bounds.max - settings.fan_bounds.min)) + settings.fan_bounds.min) as _;
+    let fan_speed: u64 = ((fan_ratio * (fan_bounds.end - fan_bounds.start)) + fan_bounds.start) as _;
     if let Err(e) = write_fan_target(hwmon, fan_speed) {
         log::error!("Failed to write to Steam Deck fan target file: {}", e);
     }
