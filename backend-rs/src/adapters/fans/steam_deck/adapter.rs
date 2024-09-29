@@ -175,7 +175,25 @@ fn read_fan(hwmon: &HwMonPath) -> std::io::Result<u64> {
 }
 
 fn fan_range() -> std::ops::Range<f64> {
-    1.0..7000.0
+    let sys = sysinfo::System::new_with_specifics(
+        sysinfo::RefreshKind::new().with_cpu(sysinfo::CpuRefreshKind::everything()),
+    );
+    if sys.cpus().is_empty() {
+        1.0..7123.0
+    } else {
+        let cpu_name = sys.cpus()[0].brand();
+        if cpu_name.contains("AMD Custom APU 0405") {
+            // LCD
+            1.0..7000.0
+        } else if cpu_name.contains("AMD Custom APU 0932") {
+            // OLED
+            1.0..9000.0
+        } else {
+            // Hopefully never reached
+            1.0..7001.0
+        }
+    }
+
 }
 
 fn do_fan_control(settings: &Settings, hwmon: &HwMonPath, thermal_zone: f64) {
