@@ -1,0 +1,10 @@
+{
+    "name": "FantasticPlus",
+    "author": "FantasticPlus contributors",
+    "flags": ["root", "_debug", "global-dfl"],
+    "publish": {
+        "description": "Fan curve control for Steam Deck. An independent rework of Fantastic with profile slots, a dead-zone aware curve editor and read-only SteamOS curve references.",
+        "tags": [ "utility", "fan-control", "root" ],
+        "image": "https://raw.githubusercontent.com/NGnius/Fantastic/main/assets/thumbnail.png"
+    }
+}
