@@ -1239,6 +1239,14 @@
           en: "Tap the selected item again to view / edit",
       },
       needTwoPoints: { zh: "至少需要 2 个点才会生效", en: "at least 2 points required" },
+      // No emoji on purpose: the Deck's UI font may not carry U+26A0 and would show a
+      // hollow box instead.
+      activeCoolingWarning: {
+          zh: "警告：本设备为主动散热设备，起转温度过高或曲线设置过低会有零件损坏风险",
+          en: "Warning: active cooling required; a too-high start temperature or a too-low curve risks component damage",
+      },
+      slotNameLabel: { zh: "槽位名称", en: "Profile name" },
+      nameTaken: { zh: "名称已被占用，已改为", en: "name already used, renamed to" },
       canvasHint: {
           zh: "点击空白添加 · 点击节点删除",
           en: "Tap empty area to add · tap a point to delete",
@@ -1324,13 +1332,26 @@
   const COL_OVERLAY_FG = "#cfe6ff";
   const COL_OVERLAY_DIM = "#7f94a6";
   const COL_OVERLAY_WARN = "#ff9d9d";
+  /**
+   * Everything inside the canvas is drawn in fixed CSS pixels, so on a 1080p display
+   * a canvas that is 1.6x wider would keep 10 px labels and look emptier, not bigger.
+   * All sizes are multiplied by this factor instead.
+   */
+  function drawScale(width) {
+      return Math.min(1.8, Math.max(0.85, width / 840));
+  }
   /** Plot area inside the canvas; the labels live in the padding around it. */
   function plotRect(width, height) {
+      const s = drawScale(width);
+      const left = Math.round(PADDING.left * s);
+      const right = Math.round(PADDING.right * s);
+      const top = Math.round(PADDING.top * s);
+      const bottom = Math.round(PADDING.bottom * s);
       return {
-          x: PADDING.left,
-          y: PADDING.top,
-          w: Math.max(1, width - PADDING.left - PADDING.right),
-          h: Math.max(1, height - PADDING.top - PADDING.bottom),
+          x: left,
+          y: top,
+          w: Math.max(1, width - left - right),
+          h: Math.max(1, height - top - bottom),
       };
   }
   /**
@@ -1383,10 +1404,14 @@
       }
       return floor[floor.length - 1][1];
   }
+  /** Round a ratio up to the next whole percent, never down past the limit. */
+  function ceilPercent(ratio) {
+      return Math.ceil(ratio * 100 - 1e-9) / 100;
+  }
   /** The lowest legal ratio for this point: the curve may never sit below the floor. */
   function snapToFloor(point, floor) {
       const limit = floorAt(point.x * 100, floor);
-      return point.y < limit ? { x: point.x, y: limit } : point;
+      return point.y < limit ? { x: point.x, y: ceilPercent(limit) } : point;
   }
   /**
    * Sort the points and pin the leftmost one, which is the fan start temperature.
@@ -1399,10 +1424,23 @@
    */
   function normalizeCurve(curve, floor = DEFAULT_SAFETY_FLOOR) {
       const sorted = curve.slice().sort((a, b) => a.x - b.x);
-      if (sorted.length >= 1) {
-          sorted[0] = { x: sorted[0].x, y: floorAt(sorted[0].x * 100, floor) };
+      // Two points at the same temperature make the interpolation divide by ~zero; the
+      // back-end merges them (newest wins), so the editor has to do the same or the
+      // canvas shows two dots on top of each other after integer rounding.
+      const merged = [];
+      for (const point of sorted) {
+          const last = merged[merged.length - 1];
+          if (last && Math.abs(point.x - last.x) < 1e-4) {
+              merged[merged.length - 1] = point;
+          }
+          else {
+              merged.push(point);
+          }
       }
-      return sorted;
+      if (merged.length >= 1) {
+          merged[0] = { x: merged[0].x, y: ceilPercent(floorAt(merged[0].x * 100, floor)) };
+      }
+      return merged;
   }
   /** The safety limit as a polyline, including the vertical step at its first entry. */
   function floorPolyline(floor) {
@@ -1516,7 +1554,7 @@
   }
   const sx = (rect, x) => rect.x + x * rect.w;
   const sy = (rect, y) => rect.y + (1 - y) * rect.h;
-  function drawAxes(ctx, rect) {
+  function drawAxes(ctx, rect, s) {
       // Vertical lines every 10 degrees C, horizontal lines every 10 %.
       ctx.lineWidth = 1;
       for (let i = 1; i < 10; i++) {
@@ -1536,12 +1574,12 @@
       ctx.strokeStyle = COL_FRAME;
       ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
       ctx.fillStyle = COL_TEXT;
-      ctx.font = "10px sans-serif";
+      ctx.font = Math.round(10 * s) + "px sans-serif";
       ctx.textBaseline = "alphabetic";
       for (let i = 0; i <= 10; i++) {
           const label = String(i * 10) + (i === 10 ? "\u00b0C" : "");
           ctx.textAlign = i === 0 ? "left" : i === 10 ? "right" : "center";
-          ctx.fillText(label, sx(rect, i / 10), rect.y + rect.h + 13);
+          ctx.fillText(label, sx(rect, i / 10), rect.y + rect.h + Math.round(13 * s));
       }
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
@@ -1551,7 +1589,7 @@
       ctx.textBaseline = "alphabetic";
   }
   /** Shade the region a curve is not allowed to enter (high temperature, low speed). */
-  function drawFloorZone(ctx, rect, poly, lang) {
+  function drawFloorZone(ctx, rect, poly, lang, s) {
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(sx(rect, poly[0].x), rect.y + rect.h);
@@ -1564,7 +1602,7 @@
       ctx.clip();
       ctx.strokeStyle = COL_FLOOR_HATCH;
       ctx.lineWidth = 1;
-      for (let offset = -rect.h; offset < rect.w + rect.h; offset += 9) {
+      for (let offset = -rect.h; offset < rect.w + rect.h; offset += Math.round(9 * s)) {
           ctx.beginPath();
           ctx.moveTo(rect.x + offset, rect.y + rect.h);
           ctx.lineTo(rect.x + offset + rect.h, rect.y);
@@ -1578,19 +1616,19 @@
           ctx.lineTo(sx(rect, point.x), sy(rect, point.y));
       }
       ctx.strokeStyle = COL_FLOOR_LINE;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = Math.max(1, 1.5 * s);
       ctx.stroke();
       ctx.fillStyle = COL_FLOOR_LABEL;
-      ctx.font = "10px sans-serif";
+      ctx.font = Math.round(10 * s) + "px sans-serif";
       ctx.textAlign = "right";
       ctx.textBaseline = "alphabetic";
-      ctx.fillText(t(lang, "deadZoneLabel"), rect.x + rect.w - 8, rect.y + rect.h - 10);
+      ctx.fillText(t(lang, "deadZoneLabel"), rect.x + rect.w - Math.round(8 * s), rect.y + rect.h - Math.round(10 * s));
       ctx.restore();
   }
   /** Solid where the curve is free, dashed where the floor is holding it down. */
-  function drawCurveLine(ctx, rect, points) {
+  function drawCurveLine(ctx, rect, points, s) {
       ctx.strokeStyle = COL_LINE;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2 * s;
       ctx.lineJoin = "round";
       let index = 0;
       while (index < points.length - 1) {
@@ -1601,7 +1639,7 @@
           }
           // Include the first point of the next group so the two strokes meet exactly.
           const stop = Math.min(end + 1, points.length);
-          ctx.setLineDash(limited ? [6, 4] : []);
+          ctx.setLineDash(limited ? [6 * s, 4 * s] : []);
           ctx.beginPath();
           ctx.moveTo(sx(rect, points[index].x), sy(rect, points[index].y));
           for (let i = index + 1; i < stop; i++) {
@@ -1612,14 +1650,18 @@
       }
       ctx.setLineDash([]);
   }
-  function drawOverlay(ctx, rect, curve, interpolate, lang, temperatureRatio, floor, clamped, readOnly, notice) {
+  function drawOverlay(ctx, rect, curve, interpolate, lang, temperatureRatio, floor, clamped, readOnly, notice, s) {
       const validRatio = temperatureRatio != null && isFinite(temperatureRatio) ? temperatureRatio : undefined;
       const authored = validRatio == null ? undefined : evalCurve(curve, interpolate, validRatio);
       const floorRatio = validRatio == null ? 0 : floorAt(validRatio * 100, floor);
       const output = authored == null ? undefined : Math.max(authored, floorRatio);
-      const lines = [
-          { text: fmtSummary(lang, curve.length, validRatio, output), color: COL_OVERLAY_FG },
-      ];
+      // The cooling notice sits on the first line of the info block, so it reads before
+      // anything else and never covers the plot.
+      const lines = [];
+      if (!readOnly) {
+          lines.push({ text: t(lang, "activeCoolingWarning"), color: COL_OVERLAY_WARN });
+      }
+      lines.push({ text: fmtSummary(lang, curve.length, validRatio, output), color: COL_OVERLAY_FG });
       if (curve.length === 1) {
           lines.push({ text: t(lang, "needTwoPoints"), color: COL_OVERLAY_WARN });
       }
@@ -1663,20 +1705,22 @@
       else {
           lines.push({ text: t(lang, "canvasHint"), color: COL_OVERLAY_DIM });
       }
-      ctx.font = "11px sans-serif";
+      const lineHeight = Math.round(14 * s);
+      const pad = Math.round(4 * s);
+      ctx.font = Math.round(11 * s) + "px sans-serif";
       let boxW = 0;
       for (const line of lines) {
           boxW = Math.max(boxW, ctx.measureText(line.text).width);
       }
-      boxW = Math.min(boxW + 12, rect.w - 16);
-      const boxH = lines.length * 14 + 8;
+      boxW = Math.min(boxW + Math.round(12 * s), rect.w - 16);
+      const boxH = lines.length * lineHeight + Math.round(8 * s);
       ctx.fillStyle = COL_OVERLAY_BG;
-      ctx.fillRect(rect.x + 4, rect.y + 4, boxW, boxH);
+      ctx.fillRect(rect.x + pad, rect.y + pad, boxW, boxH);
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
       for (let i = 0; i < lines.length; i++) {
           ctx.fillStyle = lines[i].color;
-          ctx.fillText(lines[i].text, rect.x + 10, rect.y + 18 + i * 14);
+          ctx.fillText(lines[i].text, rect.x + Math.round(10 * s), rect.y + pad + Math.round(14 * s) + i * lineHeight);
       }
   }
   /**
@@ -1695,17 +1739,18 @@
       ctx.fillStyle = COL_BG;
       ctx.fillRect(0, 0, width, height);
       const rect = plotRect(width, height);
-      drawAxes(ctx, rect);
+      const s = drawScale(width);
+      drawAxes(ctx, rect, s);
       const floorPoly = floorPolyline(floor);
       if (floorPoly.length > 0) {
-          drawFloorZone(ctx, rect, floorPoly, lang);
+          drawFloorZone(ctx, rect, floorPoly, lang, s);
       }
       if (temperatureRatio != null && isFinite(temperatureRatio)) {
           const tx = sx(rect, Math.min(Math.max(temperatureRatio, 0), 1));
           ctx.save();
           ctx.strokeStyle = COL_TEMP;
-          ctx.lineWidth = 1;
-          ctx.setLineDash([5, 4]);
+          ctx.lineWidth = Math.max(1, s);
+          ctx.setLineDash([5 * s, 4 * s]);
           ctx.beginPath();
           ctx.moveTo(tx, rect.y);
           ctx.lineTo(tx, rect.y + rect.h);
@@ -1717,19 +1762,19 @@
       // shown as context for custom curves only.
       const limit = readOnly ? [] : floor;
       const points = effectivePolyline(curve, interpolate, limit);
-      drawCurveLine(ctx, rect, points);
+      drawCurveLine(ctx, rect, points, s);
       for (const point of curve) {
           // A point that is below the floor is drawn where it actually takes effect.
           const y = Math.max(point.y, floorAt(point.x * 100, limit));
           ctx.beginPath();
-          ctx.arc(sx(rect, point.x), sy(rect, y), POINT_RADIUS, 0, Math.PI * 2);
+          ctx.arc(sx(rect, point.x), sy(rect, y), POINT_RADIUS * s, 0, Math.PI * 2);
           if (readOnly) {
               // Sampled values of a system algorithm: drawn hollow so they do not look
               // like points the user could grab or delete.
               ctx.fillStyle = COL_BG;
               ctx.fill();
               ctx.strokeStyle = COL_LINE;
-              ctx.lineWidth = 2;
+              ctx.lineWidth = 2 * s;
               ctx.stroke();
           }
           else {
@@ -1737,7 +1782,7 @@
               ctx.fill();
           }
       }
-      drawOverlay(ctx, rect, curve, interpolate, lang, temperatureRatio, limit, points.some((point) => point.limited), readOnly, notice);
+      drawOverlay(ctx, rect, curve, interpolate, lang, temperatureRatio, limit, points.some((point) => point.limited), readOnly, notice, s);
   }
   /**
    * Large curve editor.
@@ -1765,7 +1810,10 @@
           const update = () => {
               const w = el.clientWidth;
               if (w > 0) {
-                  const h = Math.round(Math.min(Math.max(w * 0.5, 180), 360));
+                  // The 360 cap keeps the editor compact on the Deck, but on a 1080p display
+                  // it would flatten the plot, so the cap follows the window height.
+                  const tallest = Math.min(560, Math.round((window.innerHeight || 800) * 0.45));
+                  const h = Math.round(Math.min(Math.max(w * 0.5, 180), Math.max(360, tallest)));
                   setDims((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
               }
           };
@@ -1836,7 +1884,8 @@
                   const y = Math.max(curve[i].y, floorAt(curve[i].x * 100, safeFloor));
                   const dx = curve[i].x * rect.w - clickX;
                   const dy = (1 - y) * rect.h - clickY;
-                  if (dx * dx + dy * dy <= HIT_RADIUS * HIT_RADIUS) {
+                  const hit = HIT_RADIUS * drawScale(bounds.width);
+                  if (dx * dx + dy * dy <= hit * hit) {
                       const next = draft
                           ? normalizeCurve(curve.filter((_, index) => index !== i), safeFloor)
                           : await onRemove(i);
@@ -1848,9 +1897,11 @@
                   }
               }
               const clamp = (v) => Math.min(1, Math.max(0, v));
+              // Whole degrees and whole percent: a plotted point then always matches the
+              // numbers in the read-out, which used to disagree by up to 0.5.
               const tapped = {
-                  x: clamp(clickX / rect.w),
-                  y: clamp(1 - clickY / rect.h),
+                  x: Math.round(clamp(clickX / rect.w) * 100) / 100,
+                  y: Math.round(clamp(1 - clickY / rect.h) * 100) / 100,
               };
               // Nothing may be placed in the dead zone: a tap below the floor is pulled up
               // onto the edge instead of being refused.
@@ -1978,6 +2029,10 @@
       const [activeId, setActiveId] = React.useState(loadActive());
       const [editingId, setEditingId] = React.useState(null);
       const [busy, setBusy] = React.useState(false);
+      const [nameDraft, setNameDraft] = React.useState("");
+      const [nameHint, setNameHint] = React.useState(null);
+      /** The editor works on a copy: nothing is written until 保存 is pressed. */
+      const [draftCurve, setDraftCurve] = React.useState([]);
       React.useEffect(() => {
           saveSlots(customSlots);
       }, [customSlots]);
@@ -1988,6 +2043,67 @@
           saveActive(isCustom ? activeId : null);
       }, [activeId, customSlots]);
       const editing = slots.filter((slot) => slot.id === editingId)[0];
+      // Opening a slot starts a fresh draft of its name and curve.
+      React.useEffect(() => {
+          const slot = customSlots.filter((s) => s.id === editingId)[0];
+          setDraftCurve(slot ? slot.curve.slice() : []);
+          setNameDraft(slot ? slot.name : "");
+          setNameHint(null);
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [editingId]);
+      /**
+       * Names are compared case-insensitively and must stay unique across every slot,
+       * including the read-only Jupiter/Galileo entries, so two profiles can never look
+       * the same in the panel.
+       */
+      const uniqueName = (raw, exceptId) => {
+          const cleaned = raw.replace(/\s+/g, " ").trim().slice(0, 24);
+          const base = cleaned === "" ? t(lang, "newSlotName") : cleaned;
+          const taken = new Set();
+          for (const slot of customSlots) {
+              if (slot.id !== exceptId) {
+                  taken.add(slot.name.toLowerCase());
+              }
+          }
+          for (const profile of systemProfiles) {
+              taken.add(profile.name.toLowerCase());
+          }
+          if (!taken.has(base.toLowerCase())) {
+              return base;
+          }
+          let index = 2;
+          while (taken.has((base + " (" + index + ")").toLowerCase())) {
+              index++;
+          }
+          return base + " (" + index + ")";
+      };
+      /** Resolve a colliding name early so the field shows what will be saved. */
+      const resolveName = () => {
+          if (!editing) {
+              return;
+          }
+          const typed = nameDraft.trim();
+          const finalName = uniqueName(nameDraft, editing.id);
+          setNameDraft(finalName);
+          setNameHint(finalName === typed ? null : t(lang, "nameTaken") + " " + finalName);
+      };
+      const saveEditing = async () => {
+          if (!editing || busy) {
+              return;
+          }
+          setBusy(true);
+          try {
+              const finalName = uniqueName(nameDraft, editing.id);
+              const curve = normalizeCurve(draftCurve, floor);
+              setCustomSlots((prev) => prev.map((s) => (s.id === editing.id ? { ...s, name: finalName, curve } : s)));
+              // Only a slot that is already in charge reaches the running curve.
+              await onSaveSlotCurve(editing.id, curve);
+              setEditingId(null);
+          }
+          finally {
+              setBusy(false);
+          }
+      };
       const isActive = (slot) => slot.builtin === "system" ? activeProfile === slot.profile : activeId === slot.id;
       const applySlot = async (slot) => {
           if (busy) {
@@ -2020,27 +2136,26 @@
           const base = customSlots.filter((s) => s.id === activeId)[0];
           const created = {
               id: newId(),
-              name: t(lang, "newSlotName") + " " + (slots.filter((s) => s.builtin !== "system").length + 1),
+              // Counting alone used to collide after a delete, so it goes through the same
+              // uniqueness check as a manual rename.
+              name: uniqueName(t(lang, "newSlotName") + " " + (slots.filter((s) => s.builtin !== "system").length + 1), null),
               builtin: null,
               curve: (base ? base.curve : initialCurve).slice(),
           };
           setCustomSlots((prev) => [...prev, created]);
       };
-      const updateCurve = async (slot, curve) => {
-          // Editing keeps the leftmost point at 0 % (fan start temperature), and no
-          // point may end up inside the dead zone.
-          const sorted = normalizeCurve(curve, floor);
-          setCustomSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, curve: sorted } : s)));
-          // Editing a saved curve must not select it and must not start fan control; the
-          // parent pushes it to the back-end only when this slot is already in charge.
-          await onSaveSlotCurve(slot.id, sorted);
-          return sorted;
-      };
+      const cancelEditing = () => setEditingId(null);
       if (editing) {
           return (window.SP_REACT.createElement("div", null,
-              window.SP_REACT.createElement("div", { style: { marginBottom: "6px", fontSize: "13px" } }, editing.name),
-              window.SP_REACT.createElement(CurveEditor, { initialCurve: editing.curve, interpolate: interpolate, lang: lang, temperatureRatio: temperatureRatio, floor: floor, onAdd: (point) => updateCurve(editing, editing.curve.concat([point])), onRemove: (index) => updateCurve(editing, editing.curve.filter((_, i) => i !== index)) }),
-              window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", onClick: () => setEditingId(null) }, t(lang, "backLabel"))));
+              window.SP_REACT.createElement(CurveEditor, { initialCurve: editing.curve, interpolate: interpolate, lang: lang, temperatureRatio: temperatureRatio, floor: floor, draft: true, onChange: (curve) => setDraftCurve(curve), onAdd: async () => draftCurve, onRemove: async () => draftCurve }),
+              nameHint && (window.SP_REACT.createElement("div", { style: { fontSize: "11px", color: "#ff9d9d", marginTop: "4px" } }, nameHint)),
+              window.SP_REACT.createElement(deckyFrontendLib.Focusable, { "flow-children": "row", style: { display: "flex", gap: "6px", marginTop: "6px", alignItems: "center" } },
+                  window.SP_REACT.createElement("div", { style: { flex: "1 1 auto", minWidth: 0 } },
+                      window.SP_REACT.createElement(deckyFrontendLib.TextField, { label: t(lang, "slotNameLabel"), value: nameDraft, onChange: (e) => setNameDraft(e.target.value), onBlur: resolveName })),
+                  window.SP_REACT.createElement("div", { style: { flex: "0 0 auto", minWidth: "92px" } },
+                      window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", onClick: cancelEditing }, t(lang, "backLabel"))),
+                  window.SP_REACT.createElement("div", { style: { flex: "0 0 auto", minWidth: "92px" } },
+                      window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", onClick: saveEditing }, t(lang, "saveLabel"))))));
       }
       return (window.SP_REACT.createElement("div", null,
           window.SP_REACT.createElement("div", { style: { fontSize: "12px", opacity: 0.75, marginBottom: "8px" } }, t(lang, "profileModeHint")),
@@ -2072,6 +2187,19 @@
   var curve_backup = [];
   // Handle of the currently open curve modal, so it is closed before opening another.
   var curveModalHandle = undefined;
+  /**
+   * Modal sizes are CSS pixels, so a fixed 880x640 that fills the Deck screen shrinks
+   * to 43% of a 1080p display. Scale from the window instead; the 880/640 floor keeps
+   * the Deck layout exactly as it was.
+   */
+  function modalSize() {
+      const width = typeof window === "undefined" ? 1280 : window.innerWidth || 1280;
+      const height = typeof window === "undefined" ? 800 : window.innerHeight || 800;
+      return {
+          popupWidth: Math.round(Math.min(Math.max(width * 0.72, 880), 1600)),
+          popupHeight: Math.round(Math.min(Math.max(height * 0.78, 640), 1080)),
+      };
+  }
   var tempCache = -1337;
   var setTemperature_display = (_) => { };
   // Timestamps of the last value received from each stream, used by the watchdog
@@ -2310,7 +2438,7 @@
                               setActiveSlotId(null);
                               setFixedSpeed$1(null);
                               setEnable(true);
-                          }, onClose: closeCurveModal })), undefined, { popupWidth: 880, popupHeight: 640, strTitle: t(lang, "slotsTitle"), bNeverPopOut: true });
+                          }, onClose: closeCurveModal })), undefined, { ...modalSize(), strTitle: t(lang, "slotsTitle"), bNeverPopOut: true });
               }
               catch (e) {
                   console.warn("[Fantastic] slots modal unavailable", e);
@@ -2377,8 +2505,7 @@
                           window.SP_REACT.createElement("div", { style: { fontSize: "12px", color: "#ff9d9d", marginBottom: "6px" } }, t(lang, "refOnlyBody")),
                           window.SP_REACT.createElement(CurveEditor, { initialCurve: activeSystem.points, interpolate: interpolGlobal, lang: lang, temperatureRatio: temperatureRatio, floor: safetyFloor, readOnly: true, onAdd: async () => activeSystem.points, onRemove: async () => activeSystem.points }),
                           window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", onClick: closeCurveModal }, t(lang, "close")))), undefined, {
-                      popupWidth: 880,
-                      popupHeight: 640,
+                      ...modalSize(),
                       strTitle: t(lang, "modalTitle") +
                           " \u00b7 " + activeSystem.name +
                           " \u00b7 " + t(lang, "readOnly"),
@@ -2433,8 +2560,7 @@
                               window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", onClick: closeCurveModal }, t(lang, "backLabel"))),
                           window.SP_REACT.createElement("div", { style: { flex: "1 1 0" } },
                               window.SP_REACT.createElement(deckyFrontendLib.ButtonItem, { layout: "below", onClick: saveDraft }, t(lang, "saveLabel")))))), undefined, {
-                  popupWidth: 880,
-                  popupHeight: 640,
+                  ...modalSize(),
                   strTitle: t(lang, "modalTitle") + (editable ? " · " + editable.name : ""),
                   bNeverPopOut: true,
               });
