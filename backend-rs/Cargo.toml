@@ -1,9 +1,9 @@
 [package]
 name = "fantastic-rs"
-version = "0.6.0-alpha1"
+version = "0.8.0"
 edition = "2021"
 authors = ["NGnius (Graham) <ngniusness@gmail.com>"]
-description = "Backend (superuser) functionality for Fantastic"
+description = "Backend (superuser) functionality for FantasticPlus, based on Fantastic"
 license = "GPL-3.0-only"
 repository = "https://git.ngni.us/NG-SD-Plugins/Fantastic"
 keywords = ["utility", "fan-control", "root", "decky"]
@@ -11,15 +11,17 @@ readme = "../README.md"
 
 
 [dependencies]
-usdpl-back = { version = "1.0", features = ["blocking"], path = "../../usdpl-rs/usdpl-back"}
+usdpl-back = { version = "1.0", features = ["blocking"], path = "../deps/usdpl-rs/usdpl-back"}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
+signal-hook = "0.3"
 
-nrpc = { version = "1.0", path = "../../nRPC/nrpc", features = ["async-trait"] }
+nrpc = { version = "1.0", path = "../deps/nRPC/nrpc", features = ["async-trait"] }
 prost = "0.11"
 tokio = { version = "1", features = ["sync", "rt"] }
 
-sysfuss = { version = "0.4", features = ["derive"], path = "../../sysfs-nav" }
+sysfuss = { version = "0.4", features = ["derive"], path = "../deps/sysfs-nav" }
 sysinfo = "0.31"
 
 # logging
@@ -27,7 +29,7 @@ log = "0.4"
 simplelog = "0.12"
 
 [build-dependencies]
-usdpl-build = { version = "1.0", path = "../../usdpl-rs/usdpl-build" }
+usdpl-build = { version = "1.0", path = "../deps/usdpl-rs/usdpl-build" }
 
 [profile.release]
 debug = false

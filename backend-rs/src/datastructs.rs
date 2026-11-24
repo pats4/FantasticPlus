@@ -10,35 +10,53 @@ pub struct Settings {
     pub enable: bool,
     pub interpolate: bool,
     pub curve: Vec<GraphPoint>,
+    /// Fixed fan ratio (0..1); takes precedence over the system profile and curve.
+    pub fixed_speed: Option<f64>,
+    /// SteamOS profile name to follow instead of the point curve.
+    pub system_profile: Option<String>,
+    pub last_boot_id: Option<String>,
+}
+
+/// What the plugin is asked to do with the fan.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Mode {
+    Fixed(f64),
+    System(String),
+    Curve,
 }
 
 impl Settings {
+    /// Sanitise the curve: sorted, clamped, no duplicate temperatures.
     pub fn sort_curve(&mut self) {
-        self.curve.sort_by(|a, b| a.x.total_cmp(&b.x))
+        self.curve = crate::logic::sanitize_curve(&self.curve);
     }
+
+    pub fn mode(&self) -> Mode {
+        if let Some(ratio) = self.fixed_speed {
+            Mode::Fixed(ratio)
+        } else if let Some(name) = &self.system_profile {
+            Mode::System(name.clone())
+        } else {
+            Mode::Curve
+        }
+    }
+}
+
+fn sanitize_ratio(ratio: Option<f64>) -> Option<f64> {
+    ratio.filter(|r| r.is_finite()).map(|r| r.clamp(0.0, 1.0))
 }
 
 impl From<SettingsJson> for Settings {
     fn from(mut other: SettingsJson) -> Self {
-        let mut result = match other.version {
-            0 => Self {
-                version: 1,
-                enable: other.enable,
-                interpolate: other.interpolate,
-                curve: other.curve.drain(..).map(|x| GraphPoint::from_json(x, other.version)).collect(),
-            },
-            1 => Self {
-                version: 1,
-                enable: other.enable,
-                interpolate: other.interpolate,
-                curve: other.curve.drain(..).map(|x| GraphPoint::from_json(x, other.version)).collect(),
-            },
-            _ => Self {
-                version: 1,
-                enable: other.enable,
-                interpolate: other.interpolate,
-                curve: other.curve.drain(..).map(|x| GraphPoint::from_json(x, other.version)).collect(),
-            }
+        let version = other.version;
+        let mut result = Self {
+            version: 2,
+            enable: other.enable,
+            interpolate: other.interpolate,
+            curve: other.curve.drain(..).map(|x| GraphPoint::from_json(x, version)).collect(),
+            fixed_speed: sanitize_ratio(other.fixed_speed),
+            system_profile: other.system_profile.filter(|name| !name.is_empty()),
+            last_boot_id: other.last_boot_id,
         };
         result.sort_curve();
         result
@@ -53,11 +71,14 @@ impl Into<SettingsJson> for Settings {
             enable: self.enable,
             interpolate: self.interpolate,
             curve: self.curve.drain(..).map(|x| x.into()).collect(),
+            fixed_speed: self.fixed_speed,
+            system_profile: self.system_profile,
+            last_boot_id: self.last_boot_id,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GraphPoint {
     pub x: f64,
     pub y: f64,
@@ -97,16 +118,30 @@ impl Into<GraphPointJson> for GraphPoint {
 pub struct State {
     pub home: PathBuf,
     pub dirty: bool,
+    /// Set by the watchdog after repeated failures; cleared by any mode change.
+    pub tripped: bool,
 }
 
 impl State {
     pub fn new() -> Self {
         let def = Self::default();
         Self {
-            home: usdpl_back::api::dirs::home().unwrap_or(def.home),
+            home: user_home().unwrap_or(def.home),
             dirty: true,
+            tripped: false,
         }
     }
+}
+
+/// The Deck user's home directory.
+///
+/// Decky passes `DECKY_USER_HOME` to plugins. usdpl's fallback parses `who`, which
+/// yields `/home` itself when nobody is listed, so that result is ignored.
+fn user_home() -> Option<PathBuf> {
+    std::env::var_os("DECKY_USER_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .or_else(|| usdpl_back::api::dirs::home().filter(|p| p.parent() == Some(std::path::Path::new("/home"))))
 }
 
 impl Default for State {
@@ -114,6 +149,7 @@ impl Default for State {
         Self {
             home: "/home/deck".into(),
             dirty: true,
+            tripped: false,
         }
     }
 }

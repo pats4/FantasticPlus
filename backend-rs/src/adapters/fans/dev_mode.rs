@@ -1,11 +1,15 @@
 pub struct DevModeFan;
 
 impl super::Adapter for DevModeFan {
-    fn on_enable_toggled(&self, settings: &crate::datastructs::Settings) {
-        log::info!("on_enable_toggled invoked with settings {:?}", settings);
+    fn name(&self) -> &'static str { "Development mode (no fan found)" }
+
+    fn set_control(&self, take_over: bool) -> std::io::Result<()> {
+        log::info!("set_control({}) invoked", take_over);
+        Ok(())
     }
 
-    fn control_fan(&self, settings: &crate::datastructs::Settings, sensor: &crate::adapters::traits::SensorReading) {
-        log::info!("control_fan invoked with settings {:?} and sensor {:?}", settings, sensor);
+    fn apply(&self, command: crate::adapters::FanCommand) -> std::io::Result<()> {
+        log::info!("apply({:?}) invoked", command);
+        Ok(())
     }
 }
