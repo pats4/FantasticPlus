@@ -13,6 +13,7 @@ import {
   staticClasses,
   TextField,
   ToggleField,
+  useQuickAccessVisible,
 } from "decky-frontend-lib";
 import { useEffect, useState, VFC } from "react";
 import { FaFan } from "react-icons/fa";
@@ -300,7 +301,17 @@ const Content: VFC<{ serverAPI: ServerAPI }> = () => {
       setReady(true);
     })().catch((e) => console.error("[FantasticPlus] start-up failed", e));
 
-    // The only poll: one small request every 2 s, and only while the panel is open.
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The only poll: one small request every 2 s, and only while the Quick Access menu
+  // is showing. The panel stays mounted when the menu closes, so watch visibility.
+  const visible = useQuickAccessVisible();
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
     const poll = async () => {
       try {
         await backend.ensureReady();
@@ -321,7 +332,7 @@ const Content: VFC<{ serverAPI: ServerAPI }> = () => {
       clearInterval(periodicHook);
       periodicHook = null;
     };
-  }, []);
+  }, [visible]);
 
   if (!ready) {
     return (
