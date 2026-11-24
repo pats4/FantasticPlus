@@ -4,10 +4,13 @@ Steam Deck fan control for [Decky Loader](https://github.com/SteamDeckHomebrew/d
 built **from source** on top of the last official
 [Fantastic](https://git.ngram.ca/NG-SD-Plugins/Fantastic) by NGnius
 (main @ `924f1aa`, 0.6.0-alpha1). The full upstream history is kept in this
-repository, so every change can be reviewed with:
+repository; upstream's last commit appears here as `963649a` (same content, new
+commit id after a rebase merge), so every change can be reviewed with:
 
 ```bash
-git diff 924f1aa -- backend-rs src main.py
+git diff 963649a -- backend-rs src main.py
+# or against upstream itself:
+git fetch https://git.ngram.ca/NG-SD-Plugins/Fantastic.git main && git diff FETCH_HEAD -- backend-rs src main.py
 ```
 
 Nothing in this repository is a prebuilt binary. Release zips are produced by the
