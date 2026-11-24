@@ -1,0 +1,5 @@
+[toolchain]
+# wasm-bindgen 0.2.87 (pinned in Cargo.lock) refuses to build on newer compilers.
+channel = "1.81.0"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
