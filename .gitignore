@@ -50,3 +50,8 @@ backend
 *.zip
 *.tar.gz
 Fantastic/
+
+# FantasticPlus build outputs and pinned dependencies (see scripts/fetch-deps.sh)
+/deps/
+/out/
+/src/rust/pkg/

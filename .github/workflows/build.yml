@@ -1,0 +1,65 @@
+name: build
+
+# Every release zip is built here, from this repository's source, so anyone can
+# check that the published binary matches the code.
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install -y musl-tools zip
+
+      - name: Install Rust toolchains
+        run: |
+          rustup toolchain install stable --profile minimal --target x86_64-unknown-linux-musl
+          rustup toolchain install 1.81.0 --profile minimal --target wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ hashFiles('backend-rs/Cargo.lock', 'src/rust/Cargo.lock') }}
+
+      - name: Install wasm-pack and wasm-bindgen-cli 0.2.87
+        run: |
+          command -v wasm-pack || cargo +stable install wasm-pack --locked
+          wasm-bindgen --version 2>/dev/null | grep -q 0.2.87 || cargo +1.81.0 install wasm-bindgen-cli --version 0.2.87 --locked
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build
+        run: ./build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FantasticPlus
+          path: |
+            out/FantasticPlus.zip
+            out/SHA256SUMS
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/FantasticPlus.zip
+            out/SHA256SUMS
+          generate_release_notes: true
