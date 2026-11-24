@@ -133,6 +133,9 @@ export type Status = {
     targetRatio: number | null;
     floorRatio: number;
     temperature: number | null;
+    rpm: number | null;
+    /** Last few minutes of temperatures in °C, oldest first, one per second; null = no reading. */
+    history: (number | null)[];
     device: string;
     rpmMin: number;
     rpmMax: number;
@@ -151,6 +154,8 @@ export async function getStatus(): Promise<Status | null> {
             targetRatio: typeof s.target_ratio === "number" ? s.target_ratio : null,
             floorRatio: Number(s.floor_ratio ?? 0),
             temperature: typeof s.temperature === "number" ? s.temperature : null,
+            rpm: typeof s.rpm === "number" ? s.rpm : null,
+            history: Array.isArray(s.history) ? s.history.map((t: number) => (t > 0 ? t / 10 : null)) : [],
             device: String(s.device ?? ""),
             rpmMin: Number(s.rpm_min ?? 0),
             rpmMax: Number(s.rpm_max ?? 0),
@@ -161,12 +166,4 @@ export async function getStatus(): Promise<Status | null> {
         console.warn("[FantasticPlus] bad status payload", e);
         return null;
     }
-}
-
-export async function getFanRpm(callback: (rpm: number) => void): Promise<void> {
-    return (await FAN_CLIENT!.get_fan_rpm(true, callback));
-}
-
-export async function getTemperature(callback: (temp: number) => void): Promise<void> {
-    return (await FAN_CLIENT!.get_temperature(true, callback));
 }

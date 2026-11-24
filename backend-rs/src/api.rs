@@ -351,8 +351,11 @@ impl<'a> IFan<'a> for FanService {
         ) -> Result<JsonMessage, Box<dyn std::error::Error + Send>> {
             let fan = self.ctrl.fan_clone();
             let range = fan.rpm_range();
-            let status = self.ctrl.status().read().await.clone();
+            // one sysfs read, only while the panel is open and polling
+            let rpm = fan.sensor().and_then(|s| s.read().ok()).map(|r| r.value);
             let floor: Vec<[f64; 2]> = super::logic::SAFETY_FLOOR.iter().map(|(t, r)| [*t, *r]).collect();
+            let status = self.ctrl.status().read().await;
+            let history: Vec<u16> = status.history.iter().collect();
             let json = serde_json::json!({
                 "controlling": status.controlling,
                 "reason": status.reason,
@@ -360,12 +363,15 @@ impl<'a> IFan<'a> for FanService {
                 "target_ratio": status.target_ratio,
                 "floor_ratio": status.floor_ratio,
                 "temperature": status.temperature_c,
+                "rpm": rpm,
+                "history": history,
                 "device": fan.name(),
                 "rpm_min": range.start,
                 "rpm_max": range.end,
                 "firmware_curve": fan.uses_firmware_curve(),
                 "floor": floor,
             });
+            drop(status);
             Ok(JsonMessage { json: json.to_string() })
         }
 }

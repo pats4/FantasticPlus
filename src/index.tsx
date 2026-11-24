@@ -21,6 +21,7 @@ import { SiOnlyfans } from "react-icons/si";
 import * as backend from "./backend";
 import { Floor, Point, DEFAULT_FLOOR, floorAt, sanitize, STARTER_CURVE } from "./curve";
 import { CurveEditor } from "./editor";
+import { TempHistory } from "./history";
 import { loadActive, loadProfiles, newId, Profile, saveActive, saveProfiles, SYSTEM_PREFIX, uniqueName } from "./profiles";
 
 const REPO_URL = "https://github.com/pats4/FantasticPlus";
@@ -296,25 +297,29 @@ const Content: VFC<{ serverAPI: ServerAPI }> = () => {
       setFixed(fx);
       // keep the back-end in step with the selected profile
       if (!sysName) await pushSelection(active);
-      backend.getTemperature((t) => update({ temperature: t }));
-      backend.getFanRpm((r) => update({ rpm: r }));
       setReady(true);
     })().catch((e) => console.error("[FantasticPlus] start-up failed", e));
 
-    if (periodicHook != null) clearInterval(periodicHook);
-    periodicHook = setInterval(async () => {
+    // The only poll: one small request every 2 s, and only while the panel is open.
+    const poll = async () => {
       try {
+        await backend.ensureReady();
         const st = await backend.getStatus();
-        if (st) {
+        if (st && !cancelled) {
           setStatus(st);
-          update({ floor: st.floor });
+          update({ floor: st.floor, temperature: st.temperature, rpm: st.rpm });
         }
       } catch (e) {
         console.warn("[FantasticPlus] status failed", e);
       }
-    }, 2000);
+    };
+    poll();
+    if (periodicHook != null) clearInterval(periodicHook);
+    periodicHook = setInterval(poll, 2000);
     return () => {
       cancelled = true;
+      clearInterval(periodicHook);
+      periodicHook = null;
     };
   }, []);
 
@@ -378,6 +383,7 @@ const Content: VFC<{ serverAPI: ServerAPI }> = () => {
       <PanelSectionRow>
         <Field label="Current Temperature">{s.temperature != null ? s.temperature.toFixed(1) + " °C" : "—"}</Field>
       </PanelSectionRow>
+      {status && <TempHistory history={status.history} />}
       <PanelSectionRow>
         <SliderField
           label="Mode"

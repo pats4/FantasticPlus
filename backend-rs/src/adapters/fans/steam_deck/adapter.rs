@@ -241,23 +241,23 @@ fn read_fan(hwmon: &HwMonPath) -> std::io::Result<u64> {
     }
 }
 
+/// CPU model from /proc/cpuinfo (tells the LCD and OLED Decks apart).
+fn cpu_model() -> Option<String> {
+    let info = std::fs::read_to_string("/proc/cpuinfo").ok()?;
+    info.lines()
+        .find(|l| l.starts_with("model name"))
+        .and_then(|l| l.split_once(':'))
+        .map(|(_, v)| v.trim().to_owned())
+}
+
 fn fan_range() -> std::ops::Range<f64> {
-    let sys = sysinfo::System::new_with_specifics(
-        sysinfo::RefreshKind::new().with_cpu(sysinfo::CpuRefreshKind::everything()),
-    );
-    if sys.cpus().is_empty() {
-        1.0..7123.0
-    } else {
-        let cpu_name = sys.cpus()[0].brand();
-        if cpu_name.contains("AMD Custom APU 0405") {
-            // LCD
-            1.0..7000.0
-        } else if cpu_name.contains("AMD Custom APU 0932") {
-            // OLED
-            1.0..9000.0
-        } else {
-            // Hopefully never reached
-            1.0..7001.0
-        }
+    match cpu_model() {
+        None => 1.0..7123.0,
+        // LCD
+        Some(name) if name.contains("AMD Custom APU 0405") => 1.0..7000.0,
+        // OLED
+        Some(name) if name.contains("AMD Custom APU 0932") => 1.0..9000.0,
+        // Hopefully never reached
+        Some(_) => 1.0..7001.0,
     }
 }
