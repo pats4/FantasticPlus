@@ -147,8 +147,10 @@ impl<'a> IFan<'a> for FanService {
             input: EnablementMessage,
         ) -> Result<EnablementMessage, Box<dyn std::error::Error + Send>>{
             let mut settings = self.ctrl.settings().write().await;
+            let mut state = self.ctrl.state().write().await;
+            // any explicit choice re-arms the watchdog
+            state.tripped = false;
             if settings.enable != input.is_enabled {
-                let mut state = self.ctrl.state().write().await;
                 settings.enable = input.is_enabled;
                 state.dirty = true;
             }
@@ -234,5 +236,136 @@ impl<'a> IFan<'a> for FanService {
                 log::debug!("remove_curve_point(index: {}) failed", input.index);
                 Ok(Empty { ok: false })
             }
+        }
+
+        async fn set_curve(
+            &mut self,
+            input: JsonMessage,
+        ) -> Result<Empty, Box<dyn std::error::Error + Send>> {
+            let pairs: Vec<(f64, f64)> = match serde_json::from_str(&input.json) {
+                Ok(pairs) => pairs,
+                Err(e) => {
+                    log::warn!("set_curve rejected invalid JSON: {}", e);
+                    return Ok(Empty { ok: false });
+                }
+            };
+            let curve: Vec<super::datastructs::GraphPoint> = pairs
+                .into_iter()
+                .map(|(x, y)| super::datastructs::GraphPoint { x, y })
+                .collect();
+            let mut settings = self.ctrl.settings().write().await;
+            settings.curve = curve;
+            settings.sort_curve();
+            settings.system_profile = None;
+            let mut state = self.ctrl.state().write().await;
+            state.dirty = true;
+            log::debug!("set_curve({} points) success", settings.curve.len());
+            Ok(Empty { ok: true })
+        }
+        async fn set_fixed_speed(
+            &mut self,
+            input: RatioMessage,
+        ) -> Result<RatioMessage, Box<dyn std::error::Error + Send>> {
+            let value = if input.ratio.is_finite() && input.ratio >= 0.0 {
+                Some(input.ratio.min(1.0))
+            } else {
+                None
+            };
+            let mut settings = self.ctrl.settings().write().await;
+            let mut state = self.ctrl.state().write().await;
+            state.tripped = false;
+            if settings.fixed_speed != value {
+                settings.fixed_speed = value;
+                state.dirty = true;
+            }
+            log::debug!("set_fixed_speed({:?}) success", value);
+            Ok(RatioMessage { ratio: value.unwrap_or(-1.0) })
+        }
+        async fn get_fixed_speed(
+            &mut self,
+            _input: Empty,
+        ) -> Result<RatioMessage, Box<dyn std::error::Error + Send>> {
+            let settings = self.ctrl.settings().read().await;
+            Ok(RatioMessage { ratio: settings.fixed_speed.unwrap_or(-1.0) })
+        }
+        async fn set_system_profile(
+            &mut self,
+            input: NameMessage,
+        ) -> Result<NameMessage, Box<dyn std::error::Error + Send>> {
+            let name = input.name.trim().to_owned();
+            let value = if name.is_empty() {
+                None
+            } else if self.ctrl.profiles().iter().any(|p| p.name == name) {
+                Some(name)
+            } else {
+                log::warn!("set_system_profile: unknown profile `{}`", name);
+                let settings = self.ctrl.settings().read().await;
+                return Ok(NameMessage { name: settings.system_profile.clone().unwrap_or_default() });
+            };
+            let mut settings = self.ctrl.settings().write().await;
+            let mut state = self.ctrl.state().write().await;
+            state.tripped = false;
+            if settings.system_profile != value {
+                settings.system_profile = value.clone();
+                state.dirty = true;
+            }
+            log::debug!("set_system_profile({:?}) success", value);
+            Ok(NameMessage { name: value.unwrap_or_default() })
+        }
+        async fn get_system_profile(
+            &mut self,
+            _input: Empty,
+        ) -> Result<NameMessage, Box<dyn std::error::Error + Send>> {
+            let settings = self.ctrl.settings().read().await;
+            Ok(NameMessage { name: settings.system_profile.clone().unwrap_or_default() })
+        }
+        async fn get_system_profiles(
+            &mut self,
+            _input: Empty,
+        ) -> Result<JsonMessage, Box<dyn std::error::Error + Send>> {
+            let fan = self.ctrl.fan_clone();
+            let max_rpm = fan.rpm_range().end;
+            let profiles: Vec<serde_json::Value> = self
+                .ctrl
+                .profiles()
+                .iter()
+                .map(|p| {
+                    let points: Vec<[f64; 2]> = p.sample(max_rpm).iter().map(|g| [g.x, g.y]).collect();
+                    serde_json::json!({
+                        "name": p.name,
+                        "description": p.description,
+                        "points": points,
+                        "from_system_files": p.from_system_files,
+                    })
+                })
+                .collect();
+            let json = serde_json::json!({
+                "supported": fan.supports_system_profiles(),
+                "profiles": profiles,
+            });
+            Ok(JsonMessage { json: json.to_string() })
+        }
+        async fn get_status(
+            &mut self,
+            _input: Empty,
+        ) -> Result<JsonMessage, Box<dyn std::error::Error + Send>> {
+            let fan = self.ctrl.fan_clone();
+            let range = fan.rpm_range();
+            let status = self.ctrl.status().read().await.clone();
+            let floor: Vec<[f64; 2]> = super::logic::SAFETY_FLOOR.iter().map(|(t, r)| [*t, *r]).collect();
+            let json = serde_json::json!({
+                "controlling": status.controlling,
+                "reason": status.reason,
+                "mode": status.mode,
+                "target_ratio": status.target_ratio,
+                "floor_ratio": status.floor_ratio,
+                "temperature": status.temperature_c,
+                "device": fan.name(),
+                "rpm_min": range.start,
+                "rpm_max": range.end,
+                "firmware_curve": fan.uses_firmware_curve(),
+                "floor": floor,
+            });
+            Ok(JsonMessage { json: json.to_string() })
         }
 }

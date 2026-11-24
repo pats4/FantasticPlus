@@ -48,6 +48,20 @@ service Fan {
 
   // Remove a point from the fan curve
   rpc remove_curve_point (IndexMessage) returns (Empty);
+  // Replace the whole fan curve; JSON array of [x, y] pairs (x = °C / 100, y = 0..1)
+  rpc set_curve (JsonMessage) returns (Empty);
+  // Fixed fan ratio 0..1; a negative ratio turns the fixed speed off
+  rpc set_fixed_speed (RatioMessage) returns (RatioMessage);
+  // Fixed fan ratio, or -1 when the fixed speed is off
+  rpc get_fixed_speed (Empty) returns (RatioMessage);
+  // Follow a SteamOS profile by name; an empty name returns to the point curve
+  rpc set_system_profile (NameMessage) returns (NameMessage);
+  // Selected SteamOS profile name, empty when the point curve is used
+  rpc get_system_profile (Empty) returns (NameMessage);
+  // JSON description of the SteamOS profiles, with sampled reference curves
+  rpc get_system_profiles (Empty) returns (JsonMessage);
+  // JSON status of the control loop (who controls the fan and why)
+  rpc get_status (Empty) returns (JsonMessage);
 
   /*
     .register("echo", api::echo)
@@ -129,6 +143,14 @@ message CurveMessageX {
 message CurveMessageY {
   //repeated GraphPoint points = 1;
   repeated double y = 2;
+}
+
+message JsonMessage {
+  string json = 1;
+}
+
+message RatioMessage {
+  double ratio = 1;
 }
 
 message IndexMessage {

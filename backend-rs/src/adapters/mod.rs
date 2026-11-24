@@ -1,5 +1,5 @@
 mod traits;
-pub use traits::{FanAdapter, SensorAdapter, SensorReading, SensorType};
+pub use traits::{ExtraInputs, FanAdapter, FanCommand, SensorAdapter, SensorReading, SensorType};
 
 pub mod fans;
 pub mod sensors;

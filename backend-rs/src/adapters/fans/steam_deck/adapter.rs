@@ -1,32 +1,128 @@
+use std::collections::VecDeque;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
 use sysfuss::{HwMonPath, HwMonAttribute, HwMonAttributeType, HwMonAttributeItem, BasicEntityPath};
 use sysfuss::{SysPath, capability::attributes, SysEntityAttributesExt};
 
-use crate::datastructs::{Settings, GraphPoint};
+use crate::adapters::{ExtraInputs, FanCommand};
 
 const VALVE_FAN_SERVICE: &str = "jupiter-fan-control.service";
+const BATTERY_STATUS: &str = "/sys/class/power_supply/BAT1/status";
+/// jupiter-fan-control averages APU power over 24 s (`sensor_time_avg`).
+const POWER_SAMPLES: usize = 24;
+/// Re-check that jupiter-fan-control is still stopped every this many ticks.
+const SERVICE_CHECK_TICKS: u32 = 10;
 
 pub struct SteamDeckFan {
     hwmon: HwMonPath,
+    gpu_hwmon: Option<PathBuf>,
+    rpm_range: std::ops::Range<f64>,
+    power_samples: Mutex<VecDeque<f64>>,
+    ticks: AtomicU32,
+    recalc_missing_logged: AtomicBool,
 }
 
 impl SteamDeckFan {
     pub fn maybe_find() -> Option<Self> {
-        find_hwmon(crate::sys::SYSFS_ROOT).map(|hwmon| Self { hwmon })
+        find_hwmon(crate::sys::SYSFS_ROOT).map(|hwmon| {
+            let gpu_hwmon = SysPath::path(crate::sys::SYSFS_ROOT)
+                .hwmon_by_name("amdgpu")
+                .ok()
+                .map(|h| h.as_ref().to_path_buf());
+            log::info!("amdgpu hwmon: {:?}", gpu_hwmon);
+            Self {
+                hwmon,
+                gpu_hwmon,
+                // computed once: upstream enumerated every CPU on every tick
+                rpm_range: fan_range(),
+                power_samples: Mutex::new(VecDeque::with_capacity(POWER_SAMPLES)),
+                ticks: AtomicU32::new(0),
+                recalc_missing_logged: AtomicBool::new(false),
+            }
+        })
     }
 
     pub fn maybe_find_thermal_zone() -> Option<BasicEntityPath> {
         find_thermal_zone(crate::sys::SYSFS_ROOT)
     }
+
+    fn write_recalc(&self, enabled: bool) {
+        // SteamOS 3.7+ removed `recalculate`; only fan1_target is required then.
+        if !self.hwmon.as_ref().join("recalculate").exists() {
+            if !self.recalc_missing_logged.swap(true, Ordering::Relaxed) {
+                log::info!("no `recalculate` attribute; depending on fan1_target alone");
+            }
+            return;
+        }
+        if let Err(e) = self.hwmon.set(RECALCULATE_ATTR, enabled as u8) {
+            log::error!("failed to write fan recalculate: {}", e);
+        }
+    }
 }
 
 impl super::super::Adapter for SteamDeckFan {
-    fn on_enable_toggled(&self, settings: &Settings) {
-        on_set_enable(settings, &self.hwmon)
+    fn name(&self) -> &'static str { "Steam Deck" }
+
+    fn set_control(&self, take_over: bool) -> std::io::Result<()> {
+        if take_over {
+            stop_fan_service();
+            self.write_recalc(true);
+            if detect_jupiter_fan_service() {
+                return Err(std::io::Error::other("jupiter-fan-control is still running"));
+            }
+        } else {
+            self.write_recalc(false);
+            // 0 returns the fan to the EC's own control on current BIOSes, exactly what
+            // jupiter-fan-control does on exit, in case the service fails to start.
+            if let Err(e) = self.hwmon.set(FAN1_TARGET_ATTR, 0u64) {
+                log::error!("failed to reset fan1_target: {}", e);
+            }
+            start_fan_service();
+            if !detect_jupiter_fan_service() {
+                log::error!("{} did not start after hand-back", VALVE_FAN_SERVICE);
+            }
+        }
+        Ok(())
     }
 
-    fn control_fan(&self, settings: &Settings, sensor: &crate::adapters::traits::SensorReading) {
-        enforce_jupiter_status(true);
-        do_fan_control(settings, &self.hwmon, sensor.value)
+    fn apply(&self, command: FanCommand) -> std::io::Result<()> {
+        let tick = self.ticks.fetch_add(1, Ordering::Relaxed);
+        if tick % SERVICE_CHECK_TICKS == 0 && detect_jupiter_fan_service() {
+            log::warn!("{} was restarted by something else; stopping it again", VALVE_FAN_SERVICE);
+            stop_fan_service();
+        }
+        let range = &self.rpm_range;
+        let rpm = match command {
+            FanCommand::Ratio(r) => range.start + r.clamp(0.0, 1.0) * (range.end - range.start),
+            FanCommand::Rpm(rpm) => rpm,
+        };
+        let rpm = if rpm.is_finite() { rpm.max(range.start).round() as u64 } else { range.end as u64 };
+        self.hwmon.set(FAN1_TARGET_ATTR, rpm)
+    }
+
+    fn supports_system_profiles(&self) -> bool { true }
+
+    fn rpm_range(&self) -> std::ops::Range<f64> { self.rpm_range.clone() }
+
+    fn extra_inputs(&self) -> ExtraInputs {
+        let mut inputs = ExtraInputs::default();
+        if let Some(gpu) = &self.gpu_hwmon {
+            inputs.gpu_temp_c = read_number(&gpu.join("temp1_input")).map(|m| m / 1000.0);
+            if let Some(uw) = read_number(&gpu.join("power1_average")) {
+                let mut samples = self.power_samples.lock().unwrap_or_else(|e| e.into_inner());
+                if samples.len() >= POWER_SAMPLES {
+                    samples.pop_front();
+                }
+                samples.push_back(uw / 1_000_000.0);
+                inputs.apu_power_w = Some(samples.iter().sum::<f64>() / samples.len() as f64);
+            }
+        }
+        inputs.charging = std::fs::read_to_string(BATTERY_STATUS)
+            .map(|s| s.trim() == "Charging")
+            .unwrap_or(false);
+        inputs
     }
 
     fn sensor<'a: 'b, 'b>(&'a self) -> Option<&'b dyn crate::adapters::SensorAdapter> {
@@ -42,6 +138,10 @@ impl super::super::super::SensorAdapter for SteamDeckFan {
             name: "Steam Deck Fan",
         })
     }
+}
+
+fn read_number(path: &std::path::Path) -> Option<f64> {
+    std::fs::read_to_string(path).ok()?.trim().parse::<f64>().ok().filter(|v| v.is_finite())
 }
 
 const RECALCULATE_ATTR: HwMonAttribute = HwMonAttribute::custom("recalculate");
@@ -97,29 +197,6 @@ fn find_thermal_zone<P: AsRef<std::path::Path>>(path: P) -> Option<BasicEntityPa
     }
 }
 
-fn on_set_enable(settings: &Settings, hwmon: &HwMonPath) {
-    // stop/start jupiter fan control (since the client-side way of doing this was removed :( )
-    enforce_jupiter_status(settings.enable);
-    if let Err(e) = write_fan_recalc(hwmon, settings.enable) {
-        log::error!("runtime failed to write to fan recalculate file: {}", e);
-    }
-}
-
-fn enforce_jupiter_status(enabled: bool) {
-    // enabled refers to whether this plugin's functionality is enabled,
-    // not the jupiter fan control service
-    let service_status = detect_jupiter_fan_service();
-    log::debug!("fan control service is enabled? {}", service_status);
-    if enabled == service_status {
-        // do not run Valve's fan service along with Fantastic, since they fight
-        if enabled {
-            stop_fan_service();
-        } else {
-            start_fan_service();
-        }
-    }
-}
-
 fn detect_jupiter_fan_service() -> bool {
     match std::process::Command::new("systemctl")
         .args(["is-active", VALVE_FAN_SERVICE])
@@ -148,16 +225,6 @@ fn stop_fan_service() {
         Err(e) => log::error!("`systemctl stop {}` err: {}", VALVE_FAN_SERVICE, e),
         Ok(out) => log::debug!("stopped `{}`:\nstdout:{}\nstderr:{}", VALVE_FAN_SERVICE, String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)),
     }
-}
-
-fn write_fan_recalc(hwmon: &HwMonPath, enabled: bool) -> Result<(), std::io::Error> {
-    hwmon.set(RECALCULATE_ATTR, enabled as u8)
-    //write_single(format!("/sys/class/hwmon/hwmon{}/recalculate", HWMON_INDEX), enabled as u8)
-}
-
-fn write_fan_target(hwmon: &HwMonPath, rpm: u64) -> Result<(), std::io::Error> {
-    hwmon.set(FAN1_TARGET_ATTR, rpm)
-    //write_single(format!("/sys/class/hwmon/hwmon{}/fan1_target", HWMON_INDEX), rpm)
 }
 
 fn read_fan(hwmon: &HwMonPath) -> std::io::Result<u64> {
@@ -191,107 +258,6 @@ fn fan_range() -> std::ops::Range<f64> {
         } else {
             // Hopefully never reached
             1.0..7001.0
-        }
-    }
-
-}
-
-fn do_fan_control(settings: &Settings, hwmon: &HwMonPath, thermal_zone: f64) {
-    /*
-        curve = self.settings["curve"]
-        fan_ratio = 0 # unnecessary in Python, but stupid without
-        if len(curve) == 0:
-            fan_ratio = 1
-        else:
-            index = -1
-            temperature_ratio = (thermal_zone(0) - TEMPERATURE_MINIMUM) / (TEMPERATURE_MAXIMUM - TEMPERATURE_MINIMUM)
-            for i in range(len(curve)-1, -1, -1):
-                if curve[i]["x"] < temperature_ratio:
-                    index = i
-                    break
-            if self.settings["interpolate"]:
-                fan_ratio = self.interpolate_fan(self, index, temperature_ratio)
-            else:
-                fan_ratio = self.step_fan(self, index, temperature_ratio)
-        set_fan_target(int((fan_ratio * FAN_MAXIMUM) + FAN_MINIMUM))
-    */
-    let fan_bounds = fan_range();
-    let temperature_ratio = ((thermal_zone as f64)/1000.0) / 100.0 /* temperature range in C */;
-    let mut index = None;
-    for i in (0..settings.curve.len()).rev() {
-        if settings.curve[i].x < temperature_ratio {
-            index = Some(i);
-            break;
-        }
-    }
-    let fan_ratio = if settings.interpolate {
-        interpolate_fan(settings, index, temperature_ratio)
-    } else {
-        step_fan(settings, index, temperature_ratio)
-    };
-    let fan_speed: u64 = ((fan_ratio * (fan_bounds.end - fan_bounds.start)) + fan_bounds.start) as _;
-    if let Err(e) = write_fan_target(hwmon, fan_speed) {
-        log::error!("Failed to write to Steam Deck fan target file: {}", e);
-    }
-}
-
-fn interpolate_fan(settings: &Settings, index: Option<usize>, t_ratio: f64) -> f64 {
-    /*
-        curve = self.settings["curve"]
-        upper_point = {"x": 1.0, "y": 0.0}
-        lower_point = {"x": 0.0, "y": 1.0}
-        if index != -1: # guaranteed to not be empty
-            lower_point = curve[index]
-        if index != len(curve) - 1:
-            upper_point = curve[index+1]
-        #logging.debug(f"lower_point: {lower_point}, upper_point: {upper_point}")
-        upper_y = 1-upper_point["y"]
-        lower_y = 1-lower_point["y"]
-        slope_m = (upper_y - lower_y) / (upper_point["x"] - lower_point["x"])
-        y_intercept_b = lower_y - (slope_m * lower_point["x"])
-        logging.debug(f"interpolation: y = {slope_m}x + {y_intercept_b}")
-        return (slope_m * temperature_ratio) + y_intercept_b
-    */
-    let (upper, lower) = if let Some(i) = index {
-        (if i != settings.curve.len() - 1 {
-            settings.curve[i+1].clone()
-        } else {
-            GraphPoint{x: 1.0, y: 1.0}
-        },
-        settings.curve[i].clone())
-    } else {
-        (if settings.curve.is_empty() {
-            GraphPoint{x: 1.0, y: 1.0}
-        } else {
-            settings.curve[0].clone()
-        },
-        GraphPoint{x: 0.0, y: 0.0})
-    };
-    let slope_m = (upper.y - lower.y) / (upper.x - lower.x);
-    let y_intercept_b = lower.y - (slope_m * lower.x);
-    log::debug!("interpolation: y = {}x + {} (between {:?} and {:?})", slope_m, y_intercept_b, upper, lower);
-    (slope_m * t_ratio) + y_intercept_b
-}
-
-fn step_fan(settings: &Settings, index: Option<usize>, _t_ratio: f64) -> f64 {
-    /*
-        curve = self.settings["curve"]
-        if index != -1:
-            return 1 - curve[index]["y"]
-        else:
-            if len(curve) == 0:
-                return 1
-            else:
-                return 0.5
-    */
-    // step fan, what are you doing?
-    if let Some(index) = index {
-        settings.curve[index].y
-    } else {
-        if settings.curve.is_empty() {
-            1.0
-        } else {
-            0.5
         }
     }
 }
