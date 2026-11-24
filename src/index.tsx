@@ -1,346 +1,474 @@
 import {
+  ButtonItem,
   definePlugin,
+  Field,
+  Focusable,
+  ModalRoot,
+  Navigation,
   PanelSection,
   PanelSectionRow,
-  Field,
   ServerAPI,
-  ToggleField,
+  showModal,
+  SliderField,
   staticClasses,
-  Navigation,
+  TextField,
+  ToggleField,
 } from "decky-frontend-lib";
-import { VFC, useState } from "react";
+import { useEffect, useState, VFC } from "react";
 import { FaFan } from "react-icons/fa";
 import { SiOnlyfans } from "react-icons/si";
 
-import { version_usdpl } from "fantastic-wasm";
-
 import * as backend from "./backend";
-import {Canvas} from "./canvas";
+import { Floor, Point, DEFAULT_FLOOR, floorAt, sanitize, STARTER_CURVE } from "./curve";
+import { CurveEditor } from "./editor";
+import { loadActive, loadProfiles, newId, Profile, saveActive, saveProfiles, SYSTEM_PREFIX, uniqueName } from "./profiles";
 
-const POINT_SIZE = 32;
+const REPO_URL = "https://github.com/pats4/FantasticPlus";
+const UPSTREAM_URL = "https://git.ngram.ca/NG-SD-Plugins/Fantastic";
+
+// ---------------------------------------------------------------------------
+// A small shared store: modals are rendered outside the panel's React tree, so
+// state they change (profiles, selection) and live readings go through here.
+
+type Store = {
+  profiles: Profile[];
+  active: string | null;
+  temperature: number | null;
+  rpm: number | null;
+  interpolate: boolean;
+  floor: Floor;
+  systemProfiles: backend.SystemProfile[];
+  systemSupported: boolean;
+};
+
+const store: Store = {
+  profiles: [],
+  active: null,
+  temperature: null,
+  rpm: null,
+  interpolate: true,
+  floor: DEFAULT_FLOOR,
+  systemProfiles: [],
+  systemSupported: false,
+};
+const listeners = new Set<() => void>();
+
+function update(patch: Partial<Store>) {
+  Object.assign(store, patch);
+  if (patch.profiles) saveProfiles(store.profiles);
+  if ("active" in patch) saveActive(store.active);
+  listeners.forEach((fn) => fn());
+}
+
+function useStore(): Store {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const fn = () => setTick((t) => t + 1);
+    listeners.add(fn);
+    return () => {
+      listeners.delete(fn);
+    };
+  }, []);
+  return store;
+}
+
+// ---------------------------------------------------------------------------
+// Back-end actions
+
+/** Make the selected profile the back-end's curve (or SteamOS profile). */
+async function pushSelection(active: string | null): Promise<void> {
+  if (active && active.startsWith(SYSTEM_PREFIX)) {
+    await backend.setSystemProfile(active.slice(SYSTEM_PREFIX.length));
+    return;
+  }
+  const profile = store.profiles.find((p) => p.id === active) ?? store.profiles[0];
+  if (profile) {
+    await backend.setCurve(profile.curve);
+    if (store.active !== profile.id) update({ active: profile.id });
+  }
+}
+
+async function saveProfileCurve(id: string, curve: Point[]): Promise<void> {
+  const clean = sanitize(curve);
+  update({ profiles: store.profiles.map((p) => (p.id === id ? { ...p, curve: clean } : p)) });
+  if (store.active === id) {
+    await backend.setCurve(clean);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Modals
+
+const EditorModal: VFC<{ profileId: string; closeModal?: () => void }> = ({ profileId, closeModal }) => {
+  const s = useStore();
+  const profile = s.profiles.find((p) => p.id === profileId);
+  const [draft, setDraft] = useState<Point[]>(profile ? profile.curve : []);
+  if (!profile) {
+    return (
+      <ModalRoot closeModal={closeModal}>
+        <div>This profile no longer exists.</div>
+      </ModalRoot>
+    );
+  }
+  return (
+    <ModalRoot closeModal={closeModal} bAllowFullSize={true}>
+      <div className={staticClasses.Title} style={{ marginBottom: "8px" }}>
+        {"Fan curve · " + profile.name}
+      </div>
+      <CurveEditor curve={profile.curve} interpolate={s.interpolate} temperature={s.temperature} floor={s.floor} onChange={setDraft} />
+      <div style={{ fontSize: "12px", color: "#ff9d9d", margin: "6px 0" }}>
+        The Steam Deck relies on its fan. Above 80 °C a minimum speed is always enforced, whatever the curve says.
+      </div>
+      <Focusable flow-children="row" style={{ display: "flex", gap: "8px" }}>
+        <div style={{ flex: "1 1 0" }}>
+          <ButtonItem layout="below" onClick={() => closeModal?.()}>
+            Cancel
+          </ButtonItem>
+        </div>
+        <div style={{ flex: "1 1 0" }}>
+          <ButtonItem
+            layout="below"
+            onClick={async () => {
+              try {
+                await saveProfileCurve(profile.id, draft);
+              } catch (e) {
+                console.warn("[FantasticPlus] saving curve failed", e);
+              }
+              closeModal?.();
+            }}
+          >
+            Save
+          </ButtonItem>
+        </div>
+      </Focusable>
+    </ModalRoot>
+  );
+};
+
+const SystemViewModal: VFC<{ name: string; closeModal?: () => void }> = ({ name, closeModal }) => {
+  const s = useStore();
+  const profile = s.systemProfiles.find((p) => p.name === name);
+  return (
+    <ModalRoot closeModal={closeModal} bAllowFullSize={true}>
+      <div className={staticClasses.Title} style={{ marginBottom: "8px" }}>
+        {(profile?.description ?? name) + " · read-only"}
+      </div>
+      <div style={{ fontSize: "12px", opacity: 0.8, marginBottom: "6px" }}>
+        This is Valve's own fan formula{profile?.fromSystemFiles ? ", read from this SteamOS install" : " (built-in copy; SteamOS files not found)"}.
+        The back-end runs the formula itself, including its power feed-forward, hysteresis and minimum on-time, so the
+        curve below (sampled at idle power) is a reference only. The safety floor still applies.
+      </div>
+      <CurveEditor curve={profile?.points ?? []} interpolate={true} temperature={s.temperature} readOnly={true} />
+      <ButtonItem layout="below" onClick={() => closeModal?.()}>
+        Close
+      </ButtonItem>
+    </ModalRoot>
+  );
+};
+
+const ProfilesModal: VFC<{ closeModal?: () => void }> = ({ closeModal }) => {
+  const s = useStore();
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const reserved = s.systemProfiles.map((p) => p.description);
+
+  const commitRename = (id: string) => {
+    const name = uniqueName(nameDraft, s.profiles, id, reserved);
+    update({ profiles: s.profiles.map((p) => (p.id === id ? { ...p, name } : p)) });
+    setRenaming(null);
+  };
+
+  return (
+    <ModalRoot closeModal={closeModal}>
+      <div className={staticClasses.Title} style={{ marginBottom: "8px" }}>
+        Profiles
+      </div>
+      <Focusable flow-children="column">
+        {s.profiles.map((p) => (
+          <Focusable key={p.id} flow-children="row" style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+              {renaming === p.id ? (
+                <TextField label="Name" value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} />
+              ) : (
+                <Field label={(s.active === p.id ? "● " : "○ ") + p.name}>{p.curve.length + " points"}</Field>
+              )}
+            </div>
+            {renaming === p.id ? (
+              <ButtonItem layout="below" onClick={() => commitRename(p.id)}>
+                Done
+              </ButtonItem>
+            ) : (
+              <ButtonItem
+                layout="below"
+                onClick={() => {
+                  setNameDraft(p.name);
+                  setRenaming(p.id);
+                }}
+              >
+                Rename
+              </ButtonItem>
+            )}
+            <ButtonItem layout="below" onClick={() => showModal(<EditorModal profileId={p.id} />)}>
+              Edit
+            </ButtonItem>
+            <ButtonItem
+              layout="below"
+              disabled={s.profiles.length <= 1}
+              onClick={() => {
+                if (s.profiles.length <= 1) return;
+                const remaining = s.profiles.filter((x) => x.id !== p.id);
+                const patch: Partial<Store> = { profiles: remaining };
+                if (s.active === p.id) patch.active = remaining[0].id;
+                update(patch);
+                if (patch.active) pushSelection(patch.active).catch((e) => console.warn(e));
+              }}
+            >
+              Delete
+            </ButtonItem>
+          </Focusable>
+        ))}
+      </Focusable>
+      <ButtonItem
+        layout="below"
+        onClick={() => {
+          const base = s.profiles.find((p) => p.id === s.active);
+          const created: Profile = {
+            id: newId(),
+            name: uniqueName("Custom " + (s.profiles.length + 1), s.profiles, null, reserved),
+            curve: (base ? base.curve : STARTER_CURVE).slice(),
+          };
+          update({ profiles: s.profiles.concat([created]) });
+        }}
+      >
+        + New profile (copy of the selected one)
+      </ButtonItem>
+      <ButtonItem layout="below" onClick={() => closeModal?.()}>
+        Close
+      </ButtonItem>
+    </ModalRoot>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Quick Access panel
 
 var periodicHook: any = null;
-var usdplReady: boolean = false;
-
 var name: string = "";
 var version: string = "";
 
-var curve_backup: {x: number, y: number}[] = [];
+const MODE_RATIOS = [null, null, 0.5, 0.75, 1.0];
 
-var tempCache: number = -1337;
-var setTemperature_display = (_: number) => {};
+const Content: VFC<{ serverAPI: ServerAPI }> = () => {
+  const s = useStore();
+  const [ready, setReady] = useState(false);
+  const [enabled, setEnabledState] = useState(false);
+  const [fixed, setFixed] = useState<number | null>(null);
+  const [status, setStatus] = useState<backend.Status | null>(null);
 
-var fanRpmCache: number = -273;
-var setFanRpm_display = (_: number) => {};
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await backend.ensureReady();
+      if (cancelled) return;
+      name = await backend.getName();
+      version = await backend.getVersion();
+      const [en, fx, interp, sysName, curve, sys] = await Promise.all([
+        backend.getEnabled(),
+        backend.getFixedSpeed(),
+        backend.getInterpolate(),
+        backend.getSystemProfile(),
+        backend.getCurve(),
+        backend.getSystemProfiles(),
+      ]);
+      if (cancelled) return;
+      const profiles = loadProfiles(curve);
+      let active = loadActive();
+      if (sysName) active = SYSTEM_PREFIX + sysName;
+      else if (!profiles.some((p) => p.id === active)) active = profiles[0].id;
+      update({
+        profiles,
+        active,
+        interpolate: interp,
+        systemProfiles: sys.supported ? sys.profiles : [],
+        systemSupported: sys.supported,
+      });
+      setEnabledState(en);
+      setFixed(fx);
+      // keep the back-end in step with the selected profile
+      if (!sysName) await pushSelection(active);
+      backend.getTemperature((t) => update({ temperature: t }));
+      backend.getFanRpm((r) => update({ rpm: r }));
+      setReady(true);
+    })().catch((e) => console.error("[FantasticPlus] start-up failed", e));
 
-const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
-  // const [result, setResult] = useState<number | undefined>();
-
-  // const onClick = async () => {
-  //   const result = await serverAPI.callPluginMethod<AddMethodArgs, number>(
-  //     "add",
-  //     {
-  //       left: 2,
-  //       right: 2,
-  //     }
-  //   );
-  //   if (result.success) {
-  //     setResult(result.result);
-  //   }
-  // };
-
-  const [enabledGlobal, setEnableInternal] = useState<boolean>(false);
-  const [interpolGlobal, setInterpol] = useState<boolean>(false);
-  const [_serverApiGlobal, setServerApi] = useState<ServerAPI>(serverAPI);
-  const [firstTime, setFirstTime] = useState<boolean>(true);
-  const [curveGlobal, setCurve_internal] = useState<{x: number, y: number}[]>(curve_backup);
-
-  const setCurve = (value: {x: number, y: number}[]) => {
-    setCurve_internal(value);
-    curve_backup = value;
-  }
-
-  const [temperatureGlobal, setTemperature] = useState<number>(tempCache);
-  const [fanRpmGlobal, setFanRpm] = useState<number>(fanRpmCache);
-  setTemperature_display = (x) => {
-    setTemperature(x);
-    tempCache = x;
-  };
-  setFanRpm_display = (x) => {
-    setFanRpm(x);
-    fanRpmCache = x;
-  };
-
-  function setEnable(enable: boolean) {
-    setEnableInternal(enable);
-  }
-
-  function onClickCanvas(e: any) {
-    //console.log("[FANTASTIC] canvas click", e);
-    const realEvent: any = e.nativeEvent;
-    //console.log("Canvas click @ (" + realEvent.layerX.toString() + ", " + realEvent.layerY.toString() + ")");
-    const target: any = e.currentTarget;
-    //console.log("[FANTASTIC] Target dimensions " + target.width.toString() + "x" + target.height.toString());
-    var clickX = realEvent.offsetX;
-    var clickY = realEvent.offsetY;
-    //console.debug("[FANTASTIC] curve click:", clickX, clickY);
-    for (let i = 0; i < curveGlobal.length; i++) {
-      const curvePoint = curveGlobal[i];
-      const pointX = curvePoint.x * target.width;
-      const pointY = (1 - curvePoint.y) * target.height;
-      if (
-        pointX + POINT_SIZE > clickX
-        && pointX - POINT_SIZE < clickX
-        && pointY + POINT_SIZE > clickY
-        && pointY - POINT_SIZE < clickY
-        ) {
-          //console.log("Clicked on point " + i.toString());
-          backend.resolve(backend.removeCurvePoint(i), setCurve);
-          return;
+    if (periodicHook != null) clearInterval(periodicHook);
+    periodicHook = setInterval(async () => {
+      try {
+        const st = await backend.getStatus();
+        if (st) {
+          setStatus(st);
+          update({ floor: st.floor });
         }
-    }
-    //console.log("Adding new point");
-    const curvePoint = {x: clickX / target.width, y: 1 - (clickY / target.height)};
-    backend.resolve(backend.addCurvePoint(curvePoint), setCurve);
-  }
-
-  function drawCanvas(ctx: any, frameCount: number): void {
-    if (frameCount % 100 > 1) {
-      return;
-    }
-    const width: number = ctx.canvas.width;
-    const height: number = ctx.canvas.height;
-    ctx.strokeStyle = "#1a9fff";
-    ctx.fillStyle = "#1a9fff";
-    ctx.lineWidth = 2;
-    ctx.lineJoin = "round";
-    //ctx.beginPath();
-    ctx.clearRect(0, 0, width, height);
-    /*ctx.arc(75, 75, 50, 0, Math.PI * 2, true); // Outer circle
-    ctx.moveTo(110, 75);
-    ctx.arc(75, 75, 35, 0, Math.PI, false);  // Mouth (clockwise)
-    ctx.moveTo(65, 65);
-    ctx.arc(60, 65, 5, 0, Math.PI * 2, true);  // Left eye
-    ctx.moveTo(95, 65);
-    ctx.arc(90, 65, 5, 0, Math.PI * 2, true);  // Right eye*/
-    //ctx.beginPath();
-    //ctx.moveTo(0, height);
-
-    // graph helper lines
-    ctx.beginPath();
-    ctx.strokeStyle = "#093455";
-    //ctx.fillStyle = "#093455";
-    const totalLines = 7;
-    const lineDistance = 1 / (totalLines + 1);
-    for (let i = 1; i <= totalLines; i++) {
-      ctx.moveTo(lineDistance * i * width, 0);
-      ctx.lineTo(lineDistance * i * width, height);
-      ctx.moveTo(0, lineDistance * i * height);
-      ctx.lineTo(width, lineDistance * i * height);
-    }
-    ctx.stroke();
-    //ctx.fill();
-
-    ctx.beginPath();
-    ctx.strokeStyle = "#1a9fff";
-    ctx.fillStyle = "#1a9fff";
-
-    // axis labels
-    ctx.textAlign = "center";
-    ctx.rotate(- Math.PI / 2);
-    ctx.fillText("Fan RPM", - height / 2, 12); // Y axis is rotated 90 degrees
-    ctx.rotate(Math.PI / 2);
-    ctx.fillText("Temperature", width / 2, height - 4);
-    // graph data labels
-    ctx.textAlign = "start"; // default
-    ctx.fillText("0", 2, height - 2);
-    ctx.fillText("100%", 2, 9);
-    ctx.textAlign = "right";
-    ctx.fillText("100°C", width - 2, height - 2);
-
-    ctx.moveTo(0, height);
-    if (interpolGlobal) {
-      //ctx.beginPath();
-      for (let i = 0; i < curveGlobal.length; i++) {
-        const canvasHeight = (1 - curveGlobal[i].y) * height;
-        const canvasWidth = curveGlobal[i].x * width;
-        ctx.lineTo(canvasWidth, canvasHeight);
-        ctx.moveTo(canvasWidth, canvasHeight);
-        ctx.arc(canvasWidth, canvasHeight, 8, 0, Math.PI * 2);
-        ctx.moveTo(canvasWidth, canvasHeight);
+      } catch (e) {
+        console.warn("[FantasticPlus] status failed", e);
       }
-      ctx.lineTo(width, 0);
-      //ctx.moveTo(width, 0);
-    } else {
-      //ctx.beginPath();
-      for (let i = 0; i < curveGlobal.length - 1; i++) {
-        const canvasHeight = (1 - curveGlobal[i].y) * height;
-        const canvasWidth = curveGlobal[i].x * width;
-        const canvasHeight2 = (1 - curveGlobal[i+1].y) * height;
-        const canvasWidth2 = curveGlobal[i+1].x * width;
-        //ctx.lineTo(canvasWidth, canvasHeight);
-        ctx.moveTo(canvasWidth, canvasHeight);
-        ctx.arc(canvasWidth, canvasHeight, 8, 0, Math.PI * 2);
-        ctx.moveTo(canvasWidth, canvasHeight);
-        ctx.lineTo(canvasWidth2, canvasHeight);
-        ctx.moveTo(canvasWidth2, canvasHeight);
-        ctx.lineTo(canvasWidth2, canvasHeight2);
-      }
-      if (curveGlobal.length != 0) {
-        const i = curveGlobal.length - 1;
-        const canvasHeight = (1 - curveGlobal[i].y) * height;
-        const canvasWidth = curveGlobal[i].x * width;
-        //ctx.lineTo(width, 0);
-        ctx.moveTo(canvasWidth, canvasHeight);
-        ctx.arc(canvasWidth, canvasHeight, 8, 0, Math.PI * 2);
-        ctx.moveTo(canvasWidth, canvasHeight);
-        ctx.lineTo(width, canvasHeight);
-        //ctx.moveTo(width, canvasHeight);
-        //ctx.lineTo(width, 0);
-        const canvasHeight2 = (1 - curveGlobal[0].y) * height;
-        const canvasWidth2 = curveGlobal[0].x * width;
-        ctx.moveTo(canvasWidth2, canvasHeight2);
-        ctx.lineTo(canvasWidth2, height);
-      }
-      //ctx.moveTo(width, 0);
-    }
-    ctx.stroke();
-    ctx.fill();
-    console.debug("Rendered fan graph canvas frame", frameCount);
-    //console.debug("Drew canvas with " + curveGlobal.length.toString() + " points; " + width.toString() + "x" + height.toString());
-    //ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    //ctx.fillStyle = '#000000';
-    //ctx.beginPath();
-    //ctx.arc(50, 100, 20*Math.sin(frameCount*0.05)**2, 0, 2*Math.PI);
-    //ctx.fill();
+    }, 2000);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  }
-
-  if (firstTime) {
-    setFirstTime(false);
-    setServerApi(serverAPI);
-    backend.resolve(backend.getEnabled(), setEnable);
-    backend.resolve(backend.getInterpolate(), setInterpol);
-    backend.resolve(backend.getCurve(), setCurve);
-    backend.resolve(backend.getTemperature(setTemperature_display), (_: any) => {});
-    backend.resolve(backend.getFanRpm(setFanRpm_display), (_: any) => {});
-
-    if (periodicHook != null) {
-      clearInterval(periodicHook);
-    }
-
-    /*periodicHook = setInterval(function() {
-        backend.resolve(backend.getTemperature(), setTemperature);
-        backend.resolve(backend.getFanRpm(), setFanRpm);
-    }, 1000);*/
-  }
-
-  if (!usdplReady) {
+  if (!ready) {
     return (
       <PanelSectionRow>
-        <Field
-          label="Loading...">
-          If you can read this, something probably went wrong :(
-        </Field>
+        <Field label="Loading...">If you can read this for long, the back-end did not start :(</Field>
       </PanelSectionRow>
     );
   }
 
-  // TODO handle clicking on fan curve nodes
+  const modeIndex = !enabled ? 0 : fixed == null ? 1 : fixed >= 1 ? 4 : fixed >= 0.75 ? 3 : 2;
+
+  const applyMode = async (index: number) => {
+    try {
+      const ratio = MODE_RATIOS[index];
+      if (index === 1) await pushSelection(store.active);
+      setFixed(await backend.setFixedSpeed(ratio));
+      setEnabledState(await backend.setEnabled(index !== 0));
+    } catch (e) {
+      console.warn("[FantasticPlus] mode change failed", e);
+    }
+  };
+
+  const select = async (id: string) => {
+    try {
+      update({ active: id });
+      await pushSelection(id);
+    } catch (e) {
+      console.warn("[FantasticPlus] selecting profile failed", e);
+    }
+  };
+
+  const onCard = (id: string) => {
+    if (s.active !== id) {
+      select(id);
+    } else if (id.startsWith(SYSTEM_PREFIX)) {
+      showModal(<SystemViewModal name={id.slice(SYSTEM_PREFIX.length)} />);
+    } else {
+      showModal(<EditorModal profileId={id} />);
+    }
+  };
+
+  const cards: { id: string; label: string }[] = s.profiles
+    .map((p) => ({ id: p.id, label: p.name }))
+    .concat(s.systemProfiles.map((p) => ({ id: SYSTEM_PREFIX + p.name, label: p.description })));
+
+  const rpm = s.rpm ?? 0;
+  const percent =
+    status && status.rpmMax > status.rpmMin ? Math.round(((rpm - status.rpmMin) / (status.rpmMax - status.rpmMin)) * 100) : null;
+  const floorNow = s.temperature != null ? floorAt(s.temperature, s.floor) : 0;
+  const lagging = enabled && status != null && !status.controlling && status.reason !== "";
 
   return (
     <PanelSection>
       <PanelSectionRow>
-        <Field
-          label="Current Fan Speed">
-          {fanRpmGlobal.toFixed(0) + " RPM"}
+        <Field label="Current Fan Speed">
+          {rpm.toFixed(0) + " RPM" + (rpm < 1 ? " (stopped)" : percent != null ? " (" + Math.max(0, percent) + "%)" : "")}
         </Field>
       </PanelSectionRow>
       <PanelSectionRow>
-        <Field
-          label="Current Temperature">
-          {temperatureGlobal.toFixed(1) + " °C"}
-        </Field>
+        <Field label="Current Temperature">{s.temperature != null ? s.temperature.toFixed(1) + " °C" : "—"}</Field>
       </PanelSectionRow>
       <PanelSectionRow>
-        <ToggleField
-          label="Custom Fan Curve"
-          description="Overrides SteamOS fan curve"
-          checked={enabledGlobal}
-          onChange={(value: boolean) => {
-            backend.resolve(backend.setEnabled(value), setEnable);
-          }}
+        <SliderField
+          label="Mode"
+          value={modeIndex}
+          min={0}
+          max={4}
+          step={1}
+          notchCount={5}
+          notchLabels={[
+            { notchIndex: 0, label: "SteamOS" },
+            { notchIndex: 1, label: "Profile" },
+            { notchIndex: 2, label: "50%" },
+            { notchIndex: 3, label: "75%" },
+            { notchIndex: 4, label: "100%" },
+          ]}
+          notchTicksVisible={true}
+          showValue={false}
+          onChange={(v: number) => applyMode(v)}
         />
       </PanelSectionRow>
-      { enabledGlobal &&
-      <div className={staticClasses.PanelSectionTitle}>
-        Fan
-      </div>
-      }
-      { enabledGlobal &&
+      {lagging && (
+        <PanelSectionRow>
+          <Field label="SteamOS has the fan">{status!.reason}</Field>
+        </PanelSectionRow>
+      )}
+      {enabled && status?.controlling && floorNow > 0 && (status.targetRatio ?? 0) <= floorNow + 0.005 && (
+        <PanelSectionRow>
+          <Field label="Safety floor active">{"Held at " + Math.round(floorNow * 100) + "% or more"}</Field>
+        </PanelSectionRow>
+      )}
+      <div className={staticClasses.PanelSectionTitle}>Profiles</div>
       <PanelSectionRow>
-        <Canvas draw={drawCanvas} width={268} height={200} style={{
-          "width": "268px",
-          "height": "200px",
-          "padding":"0px",
-          "border":"1px solid #1a9fff",
-          //"position":"relative",
-          "background-color":"#1a1f2c",
-          "border-radius":"4px",
-          //"margin":"auto",
-        }} onClick={(e: any) => onClickCanvas(e)}/>
+        <Focusable flow-children="column" style={{ display: "flex", flexDirection: "column", gap: "6px", width: "100%" }}>
+          {cards.map((card) => (
+            <Focusable
+              key={card.id}
+              onActivate={() => onCard(card.id)}
+              onClick={() => onCard(card.id)}
+              style={{
+                padding: "8px 10px",
+                borderRadius: "4px",
+                textAlign: "center",
+                backgroundColor: s.active === card.id ? "rgba(26, 159, 255, 0.32)" : "rgba(255, 255, 255, 0.08)",
+              }}
+            >
+              {card.label}
+            </Focusable>
+          ))}
+          <div style={{ fontSize: "11px", opacity: 0.7 }}>
+            Tap to select · tap the selected one again to edit or view. The Mode slider decides whether it runs.
+          </div>
+        </Focusable>
       </PanelSectionRow>
-      }
-      { enabledGlobal &&
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={() => showModal(<ProfilesModal />)}>
+          Manage profiles
+        </ButtonItem>
+      </PanelSectionRow>
       <PanelSectionRow>
         <ToggleField
           label="Linear Interpolation"
-          description="Pretends a straight line connects points"
-          checked={interpolGlobal}
+          description="Straight lines between points (off: steps)"
+          checked={s.interpolate}
           onChange={(value: boolean) => {
-            backend.resolve(backend.setInterpolate(value), setInterpol);
+            backend.resolve(backend.setInterpolate(value), (v: boolean) => update({ interpolate: v }));
           }}
         />
       </PanelSectionRow>
-      }
       <PanelSectionRow>
-        <Field
-          label={name}
-          onClick={()=> { Navigation.NavigateToExternalWeb("https://git.ngni.us/NG-SD-Plugins/Fantastic/releases"); }}>
+        <Field label={name} onClick={() => Navigation.NavigateToExternalWeb(REPO_URL)}>
           {"v" + version}
         </Field>
       </PanelSectionRow>
-      { (version?.includes("alpha") || version?.includes("beta")) && <PanelSectionRow>
-        <Field
-          label="USDPL"
-          onClick={()=> { Navigation.NavigateToExternalWeb("https://git.ngni.us/NG-SD-Plugins/usdpl-rs"); }}>
-          v{version_usdpl()}
+      <PanelSectionRow>
+        <Field label="Based on Fantastic" onClick={() => Navigation.NavigateToExternalWeb(UPSTREAM_URL)}>
+          by NGnius
         </Field>
-      </PanelSectionRow>}
+      </PanelSectionRow>
     </PanelSection>
   );
 };
 
-(async function(){
-  if (!usdplReady) {
-    await backend.initBackend();
-    usdplReady = true;
-    backend.getEnabled();
-    name = await backend.getName();
-    version = await backend.getVersion();
-  }
-})();
-
 export default definePlugin((serverApi: ServerAPI) => {
-
   let ico = <FaFan />;
   let now = new Date();
   if (now.getDate() == 1 && now.getMonth() == 3) {
-    ico = <SiOnlyfans/>;
+    ico = <SiOnlyfans />;
   }
 
   return {
-    title: <div className={staticClasses.Title}>Fantastic</div>,
+    title: <div className={staticClasses.Title}>FantasticPlus</div>,
     content: <Content serverAPI={serverApi} />,
     icon: ico,
     onDismount() {

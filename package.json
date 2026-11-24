@@ -1,7 +1,7 @@
 {
-  "name": "Fantastic",
-  "version": "0.6.0-alpha1",
-  "description": "A template to quickly create decky plugins from scratch, based on TypeScript and webpack",
+  "name": "FantasticPlus",
+  "version": "0.8.0",
+  "description": "Steam Deck fan control with profiles and a thermal safety floor, based on Fantastic",
   "scripts": {
     "build": "shx rm -rf dist && rollup -c",
     "watch": "rollup -c -w",
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NGnius/Fantastic.git"
+    "url": "git+https://github.com/pats4/FantasticPlus.git"
   },
   "keywords": [
     "decky",
@@ -19,12 +19,12 @@
     "steam-deck",
     "deck"
   ],
-  "author": "NGnius <ngniusness@gmail.com>",
+  "author": "FantasticPlus contributors; Fantastic by NGnius <ngniusness@gmail.com>",
   "license": "GPL-3.0",
   "bugs": {
-    "url": "https://github.com/NGnius/Fantastic/issues"
+    "url": "https://github.com/pats4/FantasticPlus/issues"
   },
-  "homepage": "https://github.com/NGnius/Fantastic#readme",
+  "homepage": "https://github.com/pats4/FantasticPlus#readme",
   "devDependencies": {
     "@rollup/plugin-commonjs": "^21.1.0",
     "@rollup/plugin-json": "^4.1.0",
@@ -51,5 +51,6 @@
         "react-dom"
       ]
     }
-  }
+  },
+  "packageManager": "pnpm@10.28.0"
 }

@@ -1,6 +1,6 @@
 [package]
 name = "fantastic-wasm"
-version = "0.5.0"
+version = "0.8.0"
 edition = "2021"
 authors = ["NGnius (Graham) <ngniusness@gmail.com>"]
 description = "Frontend bindings for fan control functionality"
@@ -13,12 +13,12 @@ readme = "../../README.md"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-usdpl-front = { version = "1.0", path = "../../../usdpl-rs/usdpl-front" }
-nrpc = { version = "1.0", path = "../../../nRPC/nrpc", default-features = false }
+usdpl-front = { version = "1.0", path = "../../deps/usdpl-rs/usdpl-front" }
+nrpc = { version = "1.0", path = "../../deps/nRPC/nrpc", default-features = false }
 prost = "0.11"
 
 [build-dependencies]
-usdpl-build = { version = "1.0", path = "../../../usdpl-rs/usdpl-build" }
+usdpl-build = { version = "1.0", path = "../../deps/usdpl-rs/usdpl-build" }
 
 [features]
 debug = ["usdpl-front/debug"]
