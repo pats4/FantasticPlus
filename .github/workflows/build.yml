@@ -8,6 +8,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Create a release with this tag (e.g. v0.8.0); leave empty to only build"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -56,9 +61,18 @@ jobs:
             out/SHA256SUMS
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          # a manual run creates the tag on the commit it built
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: FantasticPlus ${{ inputs.release_tag || github.ref_name }}
+          body: |
+            Built by GitHub Actions from commit ${{ github.sha }}, run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}.
+            No prebuilt binaries are stored in the repository; check `SHA256SUMS` against your own `./build.sh` output if you like.
+
+            Not yet tested on real Steam Deck / ROG Ally hardware: watch temperatures and `/tmp/fantasticplus.log` on first use.
           files: |
             out/FantasticPlus.zip
             out/SHA256SUMS
