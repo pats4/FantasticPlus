@@ -49,15 +49,18 @@ class Plugin:
     backend_started = 0.0
     stopping = False
 
-    def _start_backend(self):
+    # Decky calls _main/_unload with `self` bound to the Plugin class, not an
+    # instance, so helpers called from them must be classmethods.
+    @classmethod
+    def _start_backend(cls):
         _ensure_executable()
         try:
-            self.backend_proc = subprocess.Popen([BACKEND_PATH], env = dict(os.environ))
-            self.backend_started = time.monotonic()
-            logging.info("back-end started, pid %s", self.backend_proc.pid)
+            cls.backend_proc = subprocess.Popen([BACKEND_PATH], env = dict(os.environ))
+            cls.backend_started = time.monotonic()
+            logging.info("back-end started, pid %s", cls.backend_proc.pid)
         except OSError as e:
             logging.error("failed to start %s: %s", BACKEND_PATH, e)
-            self.backend_proc = None
+            cls.backend_proc = None
 
     # Asyncio-compatible long-running code, executed in a task when the plugin is loaded
     async def _main(self):

@@ -9,12 +9,31 @@ use crate::logic::{ValveController, ValveProfile};
 
 const CONFIG_DIR: &str = "/usr/share/jupiter-fan-control";
 
-/// All known profiles, read from SteamOS where possible.
+const BOARD_NAME_PATH: &str = "/sys/class/dmi/id/board_name";
+
+/// The profiles that fit this device, read from SteamOS where possible.
 pub fn load() -> Vec<ValveProfile> {
-    vec![
-        load_one("jupiter-config.yaml", ValveProfile::jupiter_builtin()),
-        load_one("galileo-config.yaml", ValveProfile::galileo_builtin()),
-    ]
+    let board = std::fs::read_to_string(BOARD_NAME_PATH).ok();
+    let names = profiles_for_board(board.as_deref());
+    log::info!("board_name {:?}: offering SteamOS profiles {:?}", board.as_deref().map(str::trim), names);
+    names
+        .iter()
+        .map(|name| match *name {
+            "jupiter" => load_one("jupiter-config.yaml", ValveProfile::jupiter_builtin()),
+            _ => load_one("galileo-config.yaml", ValveProfile::galileo_builtin()),
+        })
+        .collect()
+}
+
+/// Which SteamOS profiles to offer for a DMI `board_name`. Only the board's own
+/// profile is offered on a known Deck, so the LCD curve can't be picked on an OLED
+/// (or the reverse); both are offered when the board is unknown.
+pub fn profiles_for_board(board: Option<&str>) -> &'static [&'static str] {
+    match board.map(str::trim) {
+        Some(b) if b.eq_ignore_ascii_case("jupiter") => &["jupiter"],
+        Some(b) if b.eq_ignore_ascii_case("galileo") => &["galileo"],
+        _ => &["jupiter", "galileo"],
+    }
 }
 
 fn load_one(file: &str, builtin: ValveProfile) -> ValveProfile {
@@ -116,6 +135,14 @@ mod tests {
         let mut g = parse(GALILEO, &ValveProfile::galileo_builtin()).unwrap();
         g.from_system_files = false;
         assert_eq!(g, ValveProfile::galileo_builtin());
+    }
+
+    #[test]
+    fn offers_only_the_boards_own_profile() {
+        assert_eq!(profiles_for_board(Some("Jupiter\n")), ["jupiter"]);
+        assert_eq!(profiles_for_board(Some("Galileo\n")), ["galileo"]);
+        assert_eq!(profiles_for_board(Some("RC71L")), ["jupiter", "galileo"]);
+        assert_eq!(profiles_for_board(None), ["jupiter", "galileo"]);
     }
 
     #[test]

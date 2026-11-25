@@ -112,13 +112,22 @@ impl ControlRuntime {
             settings.enable = false;
         }
         settings.last_boot_id = boot_id;
+        let profiles = crate::system_profiles::load();
+        // A SteamOS profile saved earlier that doesn't fit this board (e.g. the LCD
+        // curve on an OLED) falls back to the point curve instead of idling.
+        if let Some(name) = settings.system_profile.clone() {
+            if !profiles.iter().any(|p| p.name == name) {
+                log::warn!("saved SteamOS profile `{}` does not fit this device; using the curve", name);
+                settings.system_profile = None;
+            }
+        }
         Self {
             settings: Arc::new(RwLock::new(settings)),
             state: Arc::new(RwLock::new(new_state)),
             status: Arc::new(RwLock::new(Status::default())),
             fan_adapter: Arc::new(fan),
             sensor_adapter: Arc::new(sensor),
-            profiles: Arc::new(crate::system_profiles::load()),
+            profiles: Arc::new(profiles),
         }
     }
 

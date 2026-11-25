@@ -2,6 +2,12 @@
 
 Each release's notes on GitHub are taken from its section here.
 
+## Unreleased
+
+**Fix: the back-end now starts.** In v0.9.0 the back-end never started, because Decky runs the plugin's start-up code on the plugin class rather than an instance. The panel stayed on "Loading..." and SteamOS kept the fan. Nothing was harmed.
+
+**Only your Deck's SteamOS profile is offered.** The back-end reads `/sys/class/dmi/id/board_name` and lists only *SteamOS LCD (Jupiter)* on an LCD Deck or *SteamOS OLED (Galileo)* on an OLED, so you can't pick the wrong one by mistake. Both are still listed if the board isn't recognised. If you had saved the other board's profile, the plugin goes back to your own curve.
+
 ## v0.9.0
 
 **Temperature graph.** Under *Current Temperature*, a small graph shows the last minute; tap it to switch to the last 5 minutes. It is kept in memory only (300 readings, about 1 KB): nothing is written to disk, and it starts empty after a reboot or wake from sleep. It uses the readings the fan control already takes every second, so it adds no sensor reads.
