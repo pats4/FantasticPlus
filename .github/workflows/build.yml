@@ -23,6 +23,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        # runs before the long build, so a missing changelog section fails fast
+        run: |
+          mkdir -p "$RUNNER_TEMP/notes"
+          scripts/release-body.sh "${{ inputs.release_tag || github.ref_name }}" "${{ github.sha }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" > "$RUNNER_TEMP/notes/body.md"
+
       - name: Install system packages
         run: sudo apt-get update && sudo apt-get install -y musl-tools zip
 
@@ -68,12 +76,7 @@ jobs:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
           name: FantasticPlus ${{ inputs.release_tag || github.ref_name }}
-          body: |
-            Built by GitHub Actions from commit ${{ github.sha }}, run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}.
-            No prebuilt binaries are stored in the repository; check `SHA256SUMS` against your own `./build.sh` output if you like.
-
-            Not yet tested on real Steam Deck / ROG Ally hardware: watch temperatures and `/tmp/fantasticplus.log` on first use.
+          body_path: ${{ runner.temp }}/notes/body.md
           files: |
             out/FantasticPlus.zip
             out/SHA256SUMS
-          generate_release_notes: true
