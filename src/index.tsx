@@ -1,6 +1,7 @@
 import {
   ButtonItem,
   definePlugin,
+  DialogButton,
   Field,
   Focusable,
   ModalRoot,
@@ -168,6 +169,8 @@ const SystemViewModal: VFC<{ name: string; closeModal?: () => void }> = ({ name,
   );
 };
 
+const BUTTON = { flex: "1 1 0", minWidth: 0, padding: "6px 8px" };
+
 const ProfilesModal: VFC<{ closeModal?: () => void }> = ({ closeModal }) => {
   const s = useStore();
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -187,57 +190,62 @@ const ProfilesModal: VFC<{ closeModal?: () => void }> = ({ closeModal }) => {
       </div>
       <Focusable flow-children="column">
         {s.profiles.map((p) => (
-          <Focusable key={p.id} flow-children="row" style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
-              {renaming === p.id ? (
-                <TextField label="Name" value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} />
-              ) : (
-                <Field label={(s.active === p.id ? "● " : "○ ") + p.name}>{p.curve.length + " points"}</Field>
-              )}
-            </div>
+          // name on its own full-width line; small buttons in a row under it (side by side,
+          // the buttons squeezed the name until it wrapped one letter per line)
+          <div key={p.id} style={{ marginBottom: "10px" }}>
             {renaming === p.id ? (
-              <ButtonItem layout="below" onClick={() => commitRename(p.id)}>
-                Done
-              </ButtonItem>
+              <TextField label="Name" value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} />
             ) : (
-              <ButtonItem
-                layout="below"
+              <Field label={(s.active === p.id ? "● " : "○ ") + p.name} bottomSeparator="none">
+                {p.curve.length + " points"}
+              </Field>
+            )}
+            <Focusable flow-children="row" style={{ display: "flex", gap: "6px" }}>
+              {renaming === p.id ? (
+                <DialogButton style={BUTTON} onClick={() => commitRename(p.id)}>
+                  Done
+                </DialogButton>
+              ) : (
+                <DialogButton
+                  style={BUTTON}
+                  onClick={() => {
+                    setNameDraft(p.name);
+                    setRenaming(p.id);
+                  }}
+                >
+                  Rename
+                </DialogButton>
+              )}
+              <DialogButton style={BUTTON} onClick={() => showModal(<EditorModal profileId={p.id} />)}>
+                Edit
+              </DialogButton>
+              <DialogButton
+                style={BUTTON}
+                disabled={s.profiles.length <= 1}
                 onClick={() => {
-                  setNameDraft(p.name);
-                  setRenaming(p.id);
+                  if (s.profiles.length <= 1) return;
+                  const remaining = s.profiles.filter((x) => x.id !== p.id);
+                  const patch: Partial<Store> = { profiles: remaining };
+                  if (s.active === p.id) patch.active = remaining[0].id;
+                  update(patch);
+                  if (patch.active) pushSelection(patch.active).catch((e) => console.warn(e));
                 }}
               >
-                Rename
-              </ButtonItem>
-            )}
-            <ButtonItem layout="below" onClick={() => showModal(<EditorModal profileId={p.id} />)}>
-              Edit
-            </ButtonItem>
-            <ButtonItem
-              layout="below"
-              disabled={s.profiles.length <= 1}
-              onClick={() => {
-                if (s.profiles.length <= 1) return;
-                const remaining = s.profiles.filter((x) => x.id !== p.id);
-                const patch: Partial<Store> = { profiles: remaining };
-                if (s.active === p.id) patch.active = remaining[0].id;
-                update(patch);
-                if (patch.active) pushSelection(patch.active).catch((e) => console.warn(e));
-              }}
-            >
-              Delete
-            </ButtonItem>
-          </Focusable>
+                Delete
+              </DialogButton>
+            </Focusable>
+          </div>
         ))}
       </Focusable>
       <ButtonItem
         layout="below"
         onClick={() => {
           const base = s.profiles.find((p) => p.id === s.active);
+          const sysBase = s.systemProfiles.find((p) => SYSTEM_PREFIX + p.name === s.active) ?? s.systemProfiles[0];
           const created: Profile = {
             id: newId(),
             name: uniqueName("Custom " + (s.profiles.length + 1), s.profiles, null, reserved),
-            curve: (base ? base.curve : STARTER_CURVE).slice(),
+            curve: base ? base.curve.slice() : sysBase && sysBase.points.length >= 2 ? sanitize(sysBase.points) : STARTER_CURVE.slice(),
           };
           update({ profiles: s.profiles.concat([created]) });
         }}
@@ -283,7 +291,7 @@ const Content: VFC<{ serverAPI: ServerAPI }> = () => {
         backend.getSystemProfiles(),
       ]);
       if (cancelled) return;
-      const profiles = loadProfiles(curve);
+      const profiles = loadProfiles(curve, sys.supported ? sys.profiles[0]?.points : undefined);
       let active = loadActive();
       if (sysName) active = SYSTEM_PREFIX + sysName;
       else if (!profiles.some((p) => p.id === active)) active = profiles[0].id;

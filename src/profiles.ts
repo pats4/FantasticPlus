@@ -16,21 +16,36 @@ function valid(p: any): p is Profile {
   return p && typeof p.id === "string" && typeof p.name === "string" && Array.isArray(p.curve);
 }
 
-export function loadProfiles(seed?: Point[]): Profile[] {
+function sameCurve(a: Point[], b: Point[]): boolean {
+  return a.length === b.length && a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
+}
+
+/**
+ * Saved profiles, or a single "Default" profile on first run. Default starts as a
+ * copy of the board's SteamOS profile (Galileo on an OLED Deck, Jupiter on an LCD Deck),
+ * so a fresh install behaves like stock until the user edits it.
+ */
+export function loadProfiles(seed?: Point[], systemCurve?: Point[]): Profile[] {
+  const fallback = systemCurve && systemCurve.length >= 2 ? sanitize(systemCurve) : null;
   try {
     const raw = window.localStorage.getItem(PROFILES_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        const profiles = parsed.filter(valid).map((p) => ({ ...p, curve: sanitize(p.curve) }));
+        let profiles = parsed.filter(valid).map((p) => ({ ...p, curve: sanitize(p.curve) }));
+        // older versions seeded Default from STARTER_CURVE; move an untouched one to the SteamOS copy
+        if (fallback && profiles.length === 1 && profiles[0].name === "Default" && sameCurve(profiles[0].curve, sanitize(STARTER_CURVE))) {
+          profiles = [{ ...profiles[0], curve: fallback }];
+          saveProfiles(profiles);
+        }
         if (profiles.length > 0) return profiles;
       }
     }
   } catch (e) {
     console.warn("[FantasticPlus] could not read profiles", e);
   }
-  const curve = seed && seed.length >= 2 ? seed : STARTER_CURVE;
-  const seeded = [{ id: newId(), name: "Default", curve: sanitize(curve) }];
+  const curve = seed && seed.length >= 2 ? sanitize(seed) : fallback ?? sanitize(STARTER_CURVE);
+  const seeded = [{ id: newId(), name: "Default", curve }];
   saveProfiles(seeded);
   return seeded;
 }
