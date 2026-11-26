@@ -2,6 +2,12 @@
 
 Each release's notes on GitHub are taken from its section here.
 
+## v0.9.2
+
+**Readable profile names in *Manage profiles*.** Each name now has its own full-width line, with smaller *Rename*, *Edit* and *Delete* buttons in a row under it. Before, the three buttons sat beside the name and squeezed it until it wrapped one letter per line.
+
+**Default starts as a copy of your Deck's SteamOS profile.** On a fresh install the *Default* profile is a copy of *SteamOS OLED (Galileo)* on an OLED Deck, or *SteamOS LCD (Jupiter)* on an LCD Deck, instead of a generic starter curve. If your only profile is an untouched *Default* from an older version, it is switched to the copy too; edited or renamed profiles are left alone. *New profile* with a SteamOS profile selected now copies that profile.
+
 ## v0.9.1
 
 **Fix: the back-end now starts.** In v0.9.0 the back-end never started, because Decky runs the plugin's start-up code on the plugin class rather than an instance. The panel stayed on "Loading..." and SteamOS kept the fan. Nothing was harmed.
