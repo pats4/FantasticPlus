@@ -2,7 +2,7 @@
 
 Each release's notes on GitHub are taken from its section here.
 
-## Unreleased
+## v0.9.1
 
 **Fix: the back-end now starts.** In v0.9.0 the back-end never started, because Decky runs the plugin's start-up code on the plugin class rather than an instance. The panel stayed on "Loading..." and SteamOS kept the fan. Nothing was harmed.
 
