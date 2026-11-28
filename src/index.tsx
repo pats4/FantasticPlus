@@ -402,7 +402,7 @@ const Content: VFC<{ serverAPI: ServerAPI }> = () => {
       <PanelSectionRow>
         <Field label="Current Temperature">{s.temperature != null ? s.temperature.toFixed(1) + " °C" : "—"}</Field>
       </PanelSectionRow>
-      {status && <TempHistory history={status.history} />}
+      {status && <TempHistory history={status.history} fan={status.fanHistory} />}
       <PanelSectionRow>
         <SliderField
           label="Mode"

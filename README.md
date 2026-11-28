@@ -47,9 +47,10 @@ updates the plugin. You can also download the zip from
 - **SteamOS LCD** and **SteamOS OLED** run Valve's own fan logic (see below).
   Pick the one matching your Deck.
 
-**Temperature graph**: under *Current Temperature*, a small graph shows the last
-minute; tap it to switch to the last 5 minutes. It is kept in memory only (300
-readings, about 1 KB) and starts empty after a reboot or wake from sleep.
+**Graph**: under *Current Temperature*, a small graph shows temperature (blue,
+°C on the left) and fan speed (orange, % on the right) for the last minute; tap it
+to switch to the last 5 minutes. It is kept in memory only (300 readings, under
+1 KB) and starts empty after a reboot or wake from sleep.
 
 **Linear Interpolation** draws straight lines between points; turn it off for
 steps that hold each point's speed until the next one.

@@ -136,6 +136,8 @@ export type Status = {
     rpm: number | null;
     /** Last few minutes of temperatures in °C, oldest first, one per second; null = no reading. */
     history: (number | null)[];
+    /** Fan speed in percent (0..100) for the same seconds as `history`, oldest first; null = no reading. */
+    fanHistory: (number | null)[];
     device: string;
     rpmMin: number;
     rpmMax: number;
@@ -156,6 +158,7 @@ export async function getStatus(): Promise<Status | null> {
             temperature: typeof s.temperature === "number" ? s.temperature : null,
             rpm: typeof s.rpm === "number" ? s.rpm : null,
             history: Array.isArray(s.history) ? s.history.map((t: number) => (t > 0 ? t / 10 : null)) : [],
+            fanHistory: Array.isArray(s.fan_history) ? s.fan_history.map((p: number) => (p <= 100 ? p : null)) : [],
             device: String(s.device ?? ""),
             rpmMin: Number(s.rpm_min ?? 0),
             rpmMax: Number(s.rpm_max ?? 0),
