@@ -21,7 +21,6 @@ prost = "0.11"
 usdpl-build = { version = "1.0", path = "../../deps/usdpl-rs/usdpl-build" }
 
 [features]
-debug = ["usdpl-front/debug"]
 decky = ["usdpl-front/decky"]
 
 [profile.release]

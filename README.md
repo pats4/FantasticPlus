@@ -4,10 +4,14 @@
 [![release](https://img.shields.io/github/v/release/pats4/FantasticPlus)](https://github.com/pats4/FantasticPlus/releases/latest)
 [![license](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 
+> **Unofficial fork.** FantasticPlus is an independent fork of Fantastic; it is not made or supported by NGnius. Please report problems [here](https://github.com/pats4/FantasticPlus/issues), not upstream.
+
+<!-- ![FantasticPlus panel](assets/screenshot.png) -->
+
 Fan control for the Steam Deck, as a [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)
-plugin. Draw your own fan curves, switch between profiles, pin the fan to a fixed
-speed or use Valve's own SteamOS curves, all with a thermal safety floor that
-keeps the Deck from overheating whatever you choose.
+plugin. Draw your own fan curves, switch between profiles and pin the fan to a fixed
+speed, all with a thermal safety floor that keeps the Deck from overheating whatever
+you choose.
 
 FantasticPlus is built on [Fantastic](https://git.ngram.ca/NG-SD-Plugins/Fantastic)
 by NGnius and is **built entirely from the source in this repository**: no prebuilt
@@ -44,8 +48,6 @@ updates the plugin. You can also download the zip from
 - In the editor, tap empty space to add a point and tap a point to remove it.
   Changes are only applied when you press **Save**.
 - **Manage profiles** lets you create, rename and delete profiles.
-- **SteamOS LCD** and **SteamOS OLED** run Valve's own fan logic (see below).
-  Pick the one matching your Deck.
 
 **Graph**: under *Current Temperature*, a small graph shows temperature (blue,
 °C on the left) and fan speed (orange, % on the right) for the last minute; tap it
@@ -81,16 +83,6 @@ The plugin takes the fan away from SteamOS, so it is built to fail safe:
 - **Robust settings**: curves are cleaned before use, settings are saved
   atomically, and a damaged settings file is set aside instead of crashing.
 
-## SteamOS profiles
-
-The SteamOS profiles are a port of Valve's `jupiter-fan-control`, read from
-`/usr/share/jupiter-fan-control` on your Deck (with a built-in copy as fallback):
-CPU and GPU curves, the OLED's power feed-forward, 700 RPM hysteresis, the 120 s
-minimum on-time and the higher minimum while charging. The curve shown for them is
-a reference sampled at idle power. They differ from SteamOS in a few details: the
-SSD sensor is not used, temperatures are not averaged, and the loop runs once per
-second. The safety floor applies to them too.
-
 ## Troubleshooting
 
 - **Logs**: `/tmp/fantasticplus.log` (back-end) and `/tmp/fantasticplus.py.log`
@@ -106,10 +98,7 @@ second. The safety floor applies to them too.
 
 ## Supported devices
 
-| Device | Status |
-|---|---|
-| Steam Deck LCD / OLED | Supported (fan range 7000 / 9000 RPM detected automatically) |
-| ASUS ROG Ally | Experimental: the curve is uploaded to the firmware; SteamOS profiles are not available |
+The Steam Deck LCD and OLED are supported; the fan range (7000 or 9000 RPM) is detected automatically.
 
 > Not yet tested on real hardware. On first use, keep an eye on temperatures and
 > the log, and please [open an issue](https://github.com/pats4/FantasticPlus/issues)
@@ -143,6 +132,5 @@ git diff FETCH_HEAD -- backend-rs src main.py
 
 - [Fantastic](https://git.ngram.ca/NG-SD-Plugins/Fantastic) and its libraries by
   NGnius. Its full commit history is kept in this repository.
-- SteamOS fan behaviour from Valve's `jupiter-fan-control`.
 
 Licensed under the [GNU GPL v3](LICENSE), like Fantastic.

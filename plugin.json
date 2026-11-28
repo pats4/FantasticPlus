@@ -3,8 +3,7 @@
     "author": "FantasticPlus contributors (based on Fantastic by NGnius)",
     "flags": ["root", "_debug", "global-dfl"],
     "publish": {
-        "description": "Fan control with profiles, fixed speeds, SteamOS profiles and a thermal safety floor. Built from source on top of Fantastic.",
-        "tags": [ "utility", "fan-control", "root" ],
-        "image": "https://raw.githubusercontent.com/NGnius/Fantastic/main/assets/thumbnail.png"
+        "description": "Fan control with profiles, fixed speeds and a thermal safety floor. Built from source on top of Fantastic.",
+        "tags": [ "utility", "fan-control", "root" ]
     }
 }
