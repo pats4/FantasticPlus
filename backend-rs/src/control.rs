@@ -32,32 +32,40 @@ pub struct Status {
     pub target_ratio: Option<f64>,
     pub floor_ratio: f64,
     pub temperature_c: Option<f64>,
-    /// The last few minutes of temperatures, one per control tick.
+    /// The last few minutes of temperatures and fan speeds, one per control tick.
     pub history: History,
 }
 
-/// Seconds of temperature history kept in memory (one sample per tick).
+/// Seconds of history kept in memory (one sample per tick).
 pub const HISTORY_LEN: usize = 300;
 
-/// Fixed-size ring of temperatures in tenths of a °C; 0 marks a missing reading.
-/// Memory only and allocation-free: it is lost when the back-end restarts.
+/// Marks a missing fan reading in [`History`].
+pub const NO_FAN: u8 = 255;
+
+/// Fixed-size rings of temperatures (tenths of a °C, 0 = missing) and fan speeds
+/// (percent of the fan's range, [`NO_FAN`] = missing). Memory only and
+/// allocation-free (900 bytes): it is lost when the back-end restarts.
 #[derive(Debug, Clone)]
 pub struct History {
-    buf: [u16; HISTORY_LEN],
+    temp: [u16; HISTORY_LEN],
+    fan: [u8; HISTORY_LEN],
     head: usize,
     len: usize,
 }
 
 impl Default for History {
     fn default() -> Self {
-        Self { buf: [0; HISTORY_LEN], head: 0, len: 0 }
+        Self { temp: [0; HISTORY_LEN], fan: [NO_FAN; HISTORY_LEN], head: 0, len: 0 }
     }
 }
 
 impl History {
-    pub fn push(&mut self, temp_c: Option<f64>) {
-        let v = temp_c.map(|t| (t * 10.0).round().clamp(1.0, 2000.0) as u16).unwrap_or(0);
-        self.buf[self.head] = v;
+    pub fn push(&mut self, temp_c: Option<f64>, fan_percent: Option<f64>) {
+        self.temp[self.head] = temp_c.map(|t| (t * 10.0).round().clamp(1.0, 2000.0) as u16).unwrap_or(0);
+        self.fan[self.head] = fan_percent
+            .filter(|p| p.is_finite())
+            .map(|p| p.round().clamp(0.0, 100.0) as u8)
+            .unwrap_or(NO_FAN);
         self.head = (self.head + 1) % HISTORY_LEN;
         self.len = (self.len + 1).min(HISTORY_LEN);
     }
@@ -67,10 +75,13 @@ impl History {
         self.len = 0;
     }
 
-    /// Oldest first.
-    pub fn iter(&self) -> impl Iterator<Item = u16> + '_ {
+    /// `(temperature, fan)` pairs, oldest first.
+    pub fn iter(&self) -> impl Iterator<Item = (u16, u8)> + '_ {
         let start = (self.head + HISTORY_LEN - self.len) % HISTORY_LEN;
-        (0..self.len).map(move |i| self.buf[(start + i) % HISTORY_LEN])
+        (0..self.len).map(move |i| {
+            let j = (start + i) % HISTORY_LEN;
+            (self.temp[j], self.fan[j])
+        })
     }
 }
 
@@ -288,13 +299,23 @@ impl ControlRuntime {
                     };
                     s.target_ratio = target;
                     s.temperature_c = temp_c;
-                    s.history.push(temp_c);
+                    s.history.push(temp_c, fan_percent(fan.as_ref().as_ref()));
                     s.floor_ratio = temp_c.map(logic::floor_at).unwrap_or(0.0);
                 }
                 thread::sleep(sleep_duration);
             }
         })
     }
+}
+
+/// The fan's measured speed as a percentage of its range: one sysfs read per tick.
+fn fan_percent(fan: &dyn FanAdapter) -> Option<f64> {
+    let range = fan.rpm_range();
+    if range.end <= range.start {
+        return None;
+    }
+    let rpm = fan.sensor()?.read().ok()?.value;
+    Some((rpm - range.start).max(0.0) / (range.end - range.start) * 100.0)
 }
 
 /// Work out this tick's target for an enabled plugin.
@@ -410,14 +431,14 @@ mod tests {
     fn history_ring_keeps_the_newest_in_order() {
         let mut h = History::default();
         assert_eq!(h.iter().count(), 0);
-        h.push(Some(40.04));
-        h.push(None);
-        h.push(Some(f64::INFINITY));
-        assert_eq!(h.iter().collect::<Vec<_>>(), vec![400, 0, 2000]);
+        h.push(Some(40.04), Some(42.4));
+        h.push(None, None);
+        h.push(Some(f64::INFINITY), Some(150.0));
+        assert_eq!(h.iter().collect::<Vec<_>>(), vec![(400, 42), (0, NO_FAN), (2000, 100)]);
         for i in 0..(HISTORY_LEN + 5) {
-            h.push(Some(i as f64 / 10.0 + 1.0));
+            h.push(Some(i as f64 / 10.0 + 1.0), Some(50.0));
         }
-        let v: Vec<u16> = h.iter().collect();
+        let v: Vec<u16> = h.iter().map(|(t, _)| t).collect();
         assert_eq!(v.len(), HISTORY_LEN);
         assert_eq!(v[0], 15); // the three early readings and the first five of the run were overwritten
         assert_eq!(*v.last().unwrap(), (HISTORY_LEN + 4) as u16 + 10);

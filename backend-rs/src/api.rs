@@ -355,7 +355,7 @@ impl<'a> IFan<'a> for FanService {
             let rpm = fan.sensor().and_then(|s| s.read().ok()).map(|r| r.value);
             let floor: Vec<[f64; 2]> = super::logic::SAFETY_FLOOR.iter().map(|(t, r)| [*t, *r]).collect();
             let status = self.ctrl.status().read().await;
-            let history: Vec<u16> = status.history.iter().collect();
+            let (history, fan_history): (Vec<u16>, Vec<u8>) = status.history.iter().unzip();
             let json = serde_json::json!({
                 "controlling": status.controlling,
                 "reason": status.reason,
@@ -365,6 +365,7 @@ impl<'a> IFan<'a> for FanService {
                 "temperature": status.temperature_c,
                 "rpm": rpm,
                 "history": history,
+                "fan_history": fan_history,
                 "device": fan.name(),
                 "rpm_min": range.start,
                 "rpm_max": range.end,
