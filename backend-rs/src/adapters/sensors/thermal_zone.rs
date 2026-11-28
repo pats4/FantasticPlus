@@ -23,8 +23,6 @@ impl super::Adapter for ThermalZoneSensor {
     fn read(&self) -> Result<super::Reading, std::io::Error> {
         Ok(super::Reading {
             value: read_thermal_zone(&self.zone)? as f64,
-            meaning: super::super::SensorType::Temperature,
-            name: "thermal_zone",
         })
     }
 }

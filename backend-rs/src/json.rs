@@ -13,10 +13,8 @@ pub struct SettingsJson {
     pub enable: bool,
     pub interpolate: bool,
     pub curve: Vec<GraphPointJson>,
-    /// Fixed fan ratio (0..1); overrides the curve and system profile when set.
+    /// Fixed fan ratio (0..1); overrides the curve when set.
     pub fixed_speed: Option<f64>,
-    /// Name of a SteamOS profile to follow instead of the point curve.
-    pub system_profile: Option<String>,
     /// Kernel boot id at the time the settings were last saved.
     pub last_boot_id: Option<String>,
 }
@@ -36,7 +34,6 @@ impl Default for SettingsJson {
             interpolate: true,
             curve: Vec::new(),
             fixed_speed: None,
-            system_profile: None,
             last_boot_id: None,
         }
     }

@@ -2,6 +2,12 @@
 
 Each release's notes on GitHub are taken from its section here.
 
+## Unreleased
+
+**Fan speed in the graph.** The graph under *Current Temperature* now also shows fan speed: temperature in blue with °C on the left, fan speed in orange with % on the right. Still memory only (under 1 KB).
+
+**Lighter: SteamOS profiles and ROG Ally support removed.** The *SteamOS LCD* / *SteamOS OLED* profiles (a port of Valve's fan logic) are gone; for Valve's own behaviour, set *Mode* to *SteamOS*, which hands the fan back to SteamOS itself. If one of them was selected, the plugin switches to your first own profile. The experimental ASUS ROG Ally support is gone too. Unused back-end requests, leftover upstream files and unused build packages were also removed (about 1,300 lines in all). The safety floor, watchdog and hand-back to SteamOS are unchanged.
+
 ## v0.9.2
 
 **Readable profile names in *Manage profiles*.** Each name now has its own full-width line, with smaller *Rename*, *Edit* and *Delete* buttons in a row under it. Before, the three buttons sat beside the name and squeezed it until it wrapped one letter per line.

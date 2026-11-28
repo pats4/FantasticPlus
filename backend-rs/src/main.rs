@@ -5,7 +5,6 @@ mod datastructs;
 mod json;
 mod logic;
 mod sys;
-mod system_profiles;
 
 use std::sync::Arc;
 
@@ -63,10 +62,6 @@ fn main() -> Result<(), ()> {
     let runtime = control::ControlRuntime::new_boxed(
         adapters::fans::SteamDeckFan::maybe_find()
             .map(|f| Box::new(f) as Box<dyn adapters::FanAdapter>)
-            .or_else(
-                || adapters::fans::RogAllyFan::maybe_find()
-                    .map(|f| Box::new(f) as Box<dyn adapters::FanAdapter>)
-            )
             .unwrap_or_else(|| Box::new(adapters::fans::DevModeFan)),
         adapters::fans::SteamDeckFan::maybe_find_thermal_zone()
             .map(|t| Box::new(adapters::sensors::ThermalZoneSensor::new(t)) as Box<dyn adapters::SensorAdapter>)

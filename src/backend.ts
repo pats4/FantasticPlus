@@ -73,7 +73,7 @@ export async function getCurve(): Promise<Point[]> {
     return result;
 }
 
-/** Replace the whole curve; also switches away from a SteamOS profile. */
+/** Replace the whole curve. */
 export async function setCurve(points: Point[]): Promise<boolean> {
     const payload = JSON.stringify(points.map((p) => [p.x, p.y]));
     return (await FAN_CLIENT!.set_curve(payload)) ?? false;
@@ -88,42 +88,6 @@ export async function setFixedSpeed(ratio: number | null): Promise<number | null
 export async function getFixedSpeed(): Promise<number | null> {
     const r = (await FAN_CLIENT!.get_fixed_speed(true)) ?? -1;
     return r < 0 ? null : r;
-}
-
-/** Follow a SteamOS profile; null returns to the point curve. */
-export async function setSystemProfile(name: string | null): Promise<string | null> {
-    const r = (await FAN_CLIENT!.set_system_profile(name ?? "")) ?? "";
-    return r === "" ? null : r;
-}
-
-export async function getSystemProfile(): Promise<string | null> {
-    const r = (await FAN_CLIENT!.get_system_profile(true)) ?? "";
-    return r === "" ? null : r;
-}
-
-export type SystemProfile = {
-    name: string;
-    description: string;
-    points: Point[];
-    fromSystemFiles: boolean;
-};
-
-export async function getSystemProfiles(): Promise<{ supported: boolean; profiles: SystemProfile[] }> {
-    try {
-        const parsed = JSON.parse((await FAN_CLIENT!.get_system_profiles(true)) ?? "{}");
-        return {
-            supported: !!parsed.supported,
-            profiles: (parsed.profiles ?? []).map((p: any) => ({
-                name: String(p.name ?? ""),
-                description: String(p.description ?? p.name ?? ""),
-                points: (p.points ?? []).map((pair: number[]) => ({ x: pair[0], y: pair[1] })),
-                fromSystemFiles: !!p.from_system_files,
-            })),
-        };
-    } catch (e) {
-        console.warn("[FantasticPlus] bad system profile payload", e);
-        return { supported: false, profiles: [] };
-    }
 }
 
 export type Status = {
@@ -141,7 +105,6 @@ export type Status = {
     device: string;
     rpmMin: number;
     rpmMax: number;
-    firmwareCurve: boolean;
     floor: Floor;
 };
 
@@ -162,7 +125,6 @@ export async function getStatus(): Promise<Status | null> {
             device: String(s.device ?? ""),
             rpmMin: Number(s.rpm_min ?? 0),
             rpmMax: Number(s.rpm_max ?? 0),
-            firmwareCurve: !!s.firmware_curve,
             floor: Array.isArray(s.floor) ? s.floor : DEFAULT_FLOOR,
         };
     } catch (e) {

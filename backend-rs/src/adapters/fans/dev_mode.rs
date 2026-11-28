@@ -8,8 +8,8 @@ impl super::Adapter for DevModeFan {
         Ok(())
     }
 
-    fn apply(&self, command: crate::adapters::FanCommand) -> std::io::Result<()> {
-        log::info!("apply({:?}) invoked", command);
+    fn apply(&self, ratio: f64) -> std::io::Result<()> {
+        log::info!("apply({}) invoked", ratio);
         Ok(())
     }
 }

@@ -1,25 +1,15 @@
-use std::collections::VecDeque;
-use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use sysfuss::{HwMonPath, HwMonAttribute, HwMonAttributeType, HwMonAttributeItem, BasicEntityPath};
 use sysfuss::{SysPath, capability::attributes, SysEntityAttributesExt};
 
-use crate::adapters::{ExtraInputs, FanCommand};
-
 const VALVE_FAN_SERVICE: &str = "jupiter-fan-control.service";
-const BATTERY_STATUS: &str = "/sys/class/power_supply/BAT1/status";
-/// jupiter-fan-control averages APU power over 24 s (`sensor_time_avg`).
-const POWER_SAMPLES: usize = 24;
 /// Re-check that jupiter-fan-control is still stopped every this many ticks.
 const SERVICE_CHECK_TICKS: u32 = 10;
 
 pub struct SteamDeckFan {
     hwmon: HwMonPath,
-    gpu_hwmon: Option<PathBuf>,
     rpm_range: std::ops::Range<f64>,
-    power_samples: Mutex<VecDeque<f64>>,
     ticks: AtomicU32,
     recalc_missing_logged: AtomicBool,
 }
@@ -27,17 +17,10 @@ pub struct SteamDeckFan {
 impl SteamDeckFan {
     pub fn maybe_find() -> Option<Self> {
         find_hwmon(crate::sys::SYSFS_ROOT).map(|hwmon| {
-            let gpu_hwmon = SysPath::path(crate::sys::SYSFS_ROOT)
-                .hwmon_by_name("amdgpu")
-                .ok()
-                .map(|h| h.as_ref().to_path_buf());
-            log::info!("amdgpu hwmon: {:?}", gpu_hwmon);
             Self {
                 hwmon,
-                gpu_hwmon,
                 // computed once: upstream enumerated every CPU on every tick
                 rpm_range: fan_range(),
-                power_samples: Mutex::new(VecDeque::with_capacity(POWER_SAMPLES)),
                 ticks: AtomicU32::new(0),
                 recalc_missing_logged: AtomicBool::new(false),
             }
@@ -87,43 +70,19 @@ impl super::super::Adapter for SteamDeckFan {
         Ok(())
     }
 
-    fn apply(&self, command: FanCommand) -> std::io::Result<()> {
+    fn apply(&self, ratio: f64) -> std::io::Result<()> {
         let tick = self.ticks.fetch_add(1, Ordering::Relaxed);
         if tick % SERVICE_CHECK_TICKS == 0 && detect_jupiter_fan_service() {
             log::warn!("{} was restarted by something else; stopping it again", VALVE_FAN_SERVICE);
             stop_fan_service();
         }
         let range = &self.rpm_range;
-        let rpm = match command {
-            FanCommand::Ratio(r) => range.start + r.clamp(0.0, 1.0) * (range.end - range.start),
-            FanCommand::Rpm(rpm) => rpm,
-        };
+        let rpm = range.start + ratio.clamp(0.0, 1.0) * (range.end - range.start);
         let rpm = if rpm.is_finite() { rpm.max(range.start).round() as u64 } else { range.end as u64 };
         self.hwmon.set(FAN1_TARGET_ATTR, rpm)
     }
 
-    fn supports_system_profiles(&self) -> bool { true }
-
     fn rpm_range(&self) -> std::ops::Range<f64> { self.rpm_range.clone() }
-
-    fn extra_inputs(&self) -> ExtraInputs {
-        let mut inputs = ExtraInputs::default();
-        if let Some(gpu) = &self.gpu_hwmon {
-            inputs.gpu_temp_c = read_number(&gpu.join("temp1_input")).map(|m| m / 1000.0);
-            if let Some(uw) = read_number(&gpu.join("power1_average")) {
-                let mut samples = self.power_samples.lock().unwrap_or_else(|e| e.into_inner());
-                if samples.len() >= POWER_SAMPLES {
-                    samples.pop_front();
-                }
-                samples.push_back(uw / 1_000_000.0);
-                inputs.apu_power_w = Some(samples.iter().sum::<f64>() / samples.len() as f64);
-            }
-        }
-        inputs.charging = std::fs::read_to_string(BATTERY_STATUS)
-            .map(|s| s.trim() == "Charging")
-            .unwrap_or(false);
-        inputs
-    }
 
     fn sensor<'a: 'b, 'b>(&'a self) -> Option<&'b dyn crate::adapters::SensorAdapter> {
         Some(self)
@@ -134,14 +93,8 @@ impl super::super::super::SensorAdapter for SteamDeckFan {
     fn read(&self) -> Result<crate::adapters::SensorReading, std::io::Error> {
         Ok(crate::adapters::SensorReading {
             value: read_fan(&self.hwmon)? as f64,
-            meaning: crate::adapters::SensorType::Fan,
-            name: "Steam Deck Fan",
         })
     }
-}
-
-fn read_number(path: &std::path::Path) -> Option<f64> {
-    std::fs::read_to_string(path).ok()?.trim().parse::<f64>().ok().filter(|v| v.is_finite())
 }
 
 const RECALCULATE_ATTR: HwMonAttribute = HwMonAttribute::custom("recalculate");

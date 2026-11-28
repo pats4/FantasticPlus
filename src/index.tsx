@@ -24,7 +24,7 @@ import * as backend from "./backend";
 import { Floor, Point, DEFAULT_FLOOR, floorAt, sanitize, STARTER_CURVE } from "./curve";
 import { CurveEditor } from "./editor";
 import { TempHistory } from "./history";
-import { loadActive, loadProfiles, newId, Profile, saveActive, saveProfiles, SYSTEM_PREFIX, uniqueName } from "./profiles";
+import { loadActive, loadProfiles, newId, Profile, saveActive, saveProfiles, uniqueName } from "./profiles";
 
 const REPO_URL = "https://github.com/pats4/FantasticPlus";
 const UPSTREAM_URL = "https://git.ngram.ca/NG-SD-Plugins/Fantastic";
@@ -40,8 +40,6 @@ type Store = {
   rpm: number | null;
   interpolate: boolean;
   floor: Floor;
-  systemProfiles: backend.SystemProfile[];
-  systemSupported: boolean;
 };
 
 const store: Store = {
@@ -51,8 +49,6 @@ const store: Store = {
   rpm: null,
   interpolate: true,
   floor: DEFAULT_FLOOR,
-  systemProfiles: [],
-  systemSupported: false,
 };
 const listeners = new Set<() => void>();
 
@@ -78,12 +74,8 @@ function useStore(): Store {
 // ---------------------------------------------------------------------------
 // Back-end actions
 
-/** Make the selected profile the back-end's curve (or SteamOS profile). */
+/** Make the selected profile the back-end's curve. */
 async function pushSelection(active: string | null): Promise<void> {
-  if (active && active.startsWith(SYSTEM_PREFIX)) {
-    await backend.setSystemProfile(active.slice(SYSTEM_PREFIX.length));
-    return;
-  }
   const profile = store.profiles.find((p) => p.id === active) ?? store.profiles[0];
   if (profile) {
     await backend.setCurve(profile.curve);
@@ -148,37 +140,15 @@ const EditorModal: VFC<{ profileId: string; closeModal?: () => void }> = ({ prof
   );
 };
 
-const SystemViewModal: VFC<{ name: string; closeModal?: () => void }> = ({ name, closeModal }) => {
-  const s = useStore();
-  const profile = s.systemProfiles.find((p) => p.name === name);
-  return (
-    <ModalRoot closeModal={closeModal} bAllowFullSize={true}>
-      <div className={staticClasses.Title} style={{ marginBottom: "8px" }}>
-        {(profile?.description ?? name) + " · read-only"}
-      </div>
-      <div style={{ fontSize: "12px", opacity: 0.8, marginBottom: "6px" }}>
-        This is Valve's own fan formula{profile?.fromSystemFiles ? ", read from this SteamOS install" : " (built-in copy; SteamOS files not found)"}.
-        The back-end runs the formula itself, including its power feed-forward, hysteresis and minimum on-time, so the
-        curve below (sampled at idle power) is a reference only. The safety floor still applies.
-      </div>
-      <CurveEditor curve={profile?.points ?? []} interpolate={true} temperature={s.temperature} readOnly={true} />
-      <ButtonItem layout="below" onClick={() => closeModal?.()}>
-        Close
-      </ButtonItem>
-    </ModalRoot>
-  );
-};
-
 const BUTTON = { flex: "1 1 0", minWidth: 0, padding: "6px 8px" };
 
 const ProfilesModal: VFC<{ closeModal?: () => void }> = ({ closeModal }) => {
   const s = useStore();
   const [renaming, setRenaming] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
-  const reserved = s.systemProfiles.map((p) => p.description);
 
   const commitRename = (id: string) => {
-    const name = uniqueName(nameDraft, s.profiles, id, reserved);
+    const name = uniqueName(nameDraft, s.profiles, id);
     update({ profiles: s.profiles.map((p) => (p.id === id ? { ...p, name } : p)) });
     setRenaming(null);
   };
@@ -241,11 +211,10 @@ const ProfilesModal: VFC<{ closeModal?: () => void }> = ({ closeModal }) => {
         layout="below"
         onClick={() => {
           const base = s.profiles.find((p) => p.id === s.active);
-          const sysBase = s.systemProfiles.find((p) => SYSTEM_PREFIX + p.name === s.active) ?? s.systemProfiles[0];
           const created: Profile = {
             id: newId(),
-            name: uniqueName("Custom " + (s.profiles.length + 1), s.profiles, null, reserved),
-            curve: base ? base.curve.slice() : sysBase && sysBase.points.length >= 2 ? sanitize(sysBase.points) : STARTER_CURVE.slice(),
+            name: uniqueName("Custom " + (s.profiles.length + 1), s.profiles, null),
+            curve: base ? base.curve.slice() : STARTER_CURVE.slice(),
           };
           update({ profiles: s.profiles.concat([created]) });
         }}
@@ -282,30 +251,22 @@ const Content: VFC<{ serverAPI: ServerAPI }> = () => {
       if (cancelled) return;
       name = await backend.getName();
       version = await backend.getVersion();
-      const [en, fx, interp, sysName, curve, sys] = await Promise.all([
+      const [en, fx, interp, curve] = await Promise.all([
         backend.getEnabled(),
         backend.getFixedSpeed(),
         backend.getInterpolate(),
-        backend.getSystemProfile(),
         backend.getCurve(),
-        backend.getSystemProfiles(),
       ]);
       if (cancelled) return;
-      const profiles = loadProfiles(curve, sys.supported ? sys.profiles[0]?.points : undefined);
+      const profiles = loadProfiles(curve);
       let active = loadActive();
-      if (sysName) active = SYSTEM_PREFIX + sysName;
-      else if (!profiles.some((p) => p.id === active)) active = profiles[0].id;
-      update({
-        profiles,
-        active,
-        interpolate: interp,
-        systemProfiles: sys.supported ? sys.profiles : [],
-        systemSupported: sys.supported,
-      });
+      // an unknown id (including one saved by an older version) falls back to the first profile
+      if (!profiles.some((p) => p.id === active)) active = profiles[0].id;
+      update({ profiles, active, interpolate: interp });
       setEnabledState(en);
       setFixed(fx);
       // keep the back-end in step with the selected profile
-      if (!sysName) await pushSelection(active);
+      await pushSelection(active);
       setReady(true);
     })().catch((e) => console.error("[FantasticPlus] start-up failed", e));
 
@@ -375,16 +336,12 @@ const Content: VFC<{ serverAPI: ServerAPI }> = () => {
   const onCard = (id: string) => {
     if (s.active !== id) {
       select(id);
-    } else if (id.startsWith(SYSTEM_PREFIX)) {
-      showModal(<SystemViewModal name={id.slice(SYSTEM_PREFIX.length)} />);
     } else {
       showModal(<EditorModal profileId={id} />);
     }
   };
 
-  const cards: { id: string; label: string }[] = s.profiles
-    .map((p) => ({ id: p.id, label: p.name }))
-    .concat(s.systemProfiles.map((p) => ({ id: SYSTEM_PREFIX + p.name, label: p.description })));
+  const cards: { id: string; label: string }[] = s.profiles.map((p) => ({ id: p.id, label: p.name }));
 
   const rpm = s.rpm ?? 0;
   const percent =

@@ -44,18 +44,16 @@ export type EditorProps = {
   /** Current temperature in °C, for the marker and the read-out. */
   temperature: number | null;
   floor?: Floor;
-  /** Reference curves (SteamOS profiles) are shown but cannot be edited. */
-  readOnly?: boolean;
   /** Called with every edited (sanitised) curve. */
   onChange?: (curve: Point[]) => void;
 };
 
-export const CurveEditor: VFC<EditorProps> = ({ curve: initial, interpolate, temperature, floor, readOnly, onChange }) => {
+export const CurveEditor: VFC<EditorProps> = ({ curve: initial, interpolate, temperature, floor, onChange }) => {
   const limit = floor ?? DEFAULT_FLOOR;
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const [curve, setCurve] = useState<Point[]>(() => (readOnly ? initial : sanitize(initial.map((p) => snapToFloor(p, limit)))));
+  const [curve, setCurve] = useState<Point[]>(() => sanitize(initial.map((p) => snapToFloor(p, limit))));
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<number | undefined>(undefined);
 
@@ -86,8 +84,8 @@ export const CurveEditor: VFC<EditorProps> = ({ curve: initial, interpolate, tem
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    draw(ctx, size.w, size.h, curve, interpolate, temperature, readOnly ? [] : limit, !!readOnly, notice);
-  }, [curve, size, interpolate, temperature, limit, readOnly, notice]);
+    draw(ctx, size.w, size.h, curve, interpolate, temperature, limit, notice);
+  }, [curve, size, interpolate, temperature, limit, notice]);
 
   const flash = (text: string) => {
     setNotice(text);
@@ -96,7 +94,6 @@ export const CurveEditor: VFC<EditorProps> = ({ curve: initial, interpolate, tem
   };
 
   const onClick = (e: any) => {
-    if (readOnly) return;
     const bounds = e.currentTarget.getBoundingClientRect();
     const r = plotRect(bounds.width, bounds.height);
     const cx = e.clientX - bounds.left - r.x;
@@ -147,7 +144,6 @@ function draw(
   interpolate: boolean,
   temperature: number | null,
   floor: Floor,
-  readOnly: boolean,
   notice: string | null,
 ) {
   ctx.clearRect(0, 0, width, height);
@@ -247,16 +243,8 @@ function draw(
     const y = Math.max(p.y, floorAt(p.x * 100, floor));
     ctx.beginPath();
     ctx.arc(sx(r, p.x), sy(r, y), POINT_RADIUS, 0, Math.PI * 2);
-    if (readOnly) {
-      ctx.fillStyle = COL_BG;
-      ctx.fill();
-      ctx.strokeStyle = COL_LINE;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = COL_LINE;
-      ctx.fill();
-    }
+    ctx.fillStyle = COL_LINE;
+    ctx.fill();
   }
 
   // read-out
@@ -268,9 +256,8 @@ function draw(
     if (out != null) summary += " → " + Math.round(out * 100) + "%";
   }
   lines.push({ text: summary, color: COL_INFO });
-  if (!readOnly && curve.length < 2) lines.push({ text: "At least 2 points are needed; until then SteamOS keeps the fan", color: COL_WARN });
+  if (curve.length < 2) lines.push({ text: "At least 2 points are needed; until then SteamOS keeps the fan", color: COL_WARN });
   if (notice) lines.push({ text: notice, color: COL_WARN });
-  else if (readOnly) lines.push({ text: "SteamOS profile · reference only, sampled at idle power", color: COL_WARN });
   else lines.push({ text: "Tap empty space to add a point · tap a point to remove it · dashed = held up by the safety floor", color: COL_TEXT });
 
   ctx.font = "11px sans-serif";

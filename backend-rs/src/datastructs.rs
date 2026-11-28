@@ -10,10 +10,8 @@ pub struct Settings {
     pub enable: bool,
     pub interpolate: bool,
     pub curve: Vec<GraphPoint>,
-    /// Fixed fan ratio (0..1); takes precedence over the system profile and curve.
+    /// Fixed fan ratio (0..1); takes precedence over the curve.
     pub fixed_speed: Option<f64>,
-    /// SteamOS profile name to follow instead of the point curve.
-    pub system_profile: Option<String>,
     pub last_boot_id: Option<String>,
 }
 
@@ -21,7 +19,6 @@ pub struct Settings {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
     Fixed(f64),
-    System(String),
     Curve,
 }
 
@@ -32,12 +29,9 @@ impl Settings {
     }
 
     pub fn mode(&self) -> Mode {
-        if let Some(ratio) = self.fixed_speed {
-            Mode::Fixed(ratio)
-        } else if let Some(name) = &self.system_profile {
-            Mode::System(name.clone())
-        } else {
-            Mode::Curve
+        match self.fixed_speed {
+            Some(ratio) => Mode::Fixed(ratio),
+            None => Mode::Curve,
         }
     }
 }
@@ -55,7 +49,6 @@ impl From<SettingsJson> for Settings {
             interpolate: other.interpolate,
             curve: other.curve.drain(..).map(|x| GraphPoint::from_json(x, version)).collect(),
             fixed_speed: sanitize_ratio(other.fixed_speed),
-            system_profile: other.system_profile.filter(|name| !name.is_empty()),
             last_boot_id: other.last_boot_id,
         };
         result.sort_curve();
@@ -72,7 +65,6 @@ impl Into<SettingsJson> for Settings {
             interpolate: self.interpolate,
             curve: self.curve.drain(..).map(|x| x.into()).collect(),
             fixed_speed: self.fixed_speed,
-            system_profile: self.system_profile,
             last_boot_id: self.last_boot_id,
         }
     }

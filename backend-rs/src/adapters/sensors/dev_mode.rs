@@ -5,8 +5,6 @@ impl super::Adapter for DevModeSensor {
         log::info!("read invoked");
         return Ok(super::Reading {
             value: 42_000.0,
-            meaning: super::super::SensorType::Temperature,
-            name: "DevModeSensor",
         })
     }
 }
